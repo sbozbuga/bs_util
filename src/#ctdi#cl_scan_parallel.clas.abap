@@ -1,0 +1,346 @@
+class /CTDI/CL_SCAN_PARALLEL definition
+  public
+  inheriting from CL_ABAP_PARALLEL
+  create public .
+
+*"* Parallel worker for the control-character scan (batched-wave model).
+*"* The DRIVER reads one package of rows and ships it here as an XSTRING
+*"* packet; this worker (running in a separate work process via
+*"* CL_ABAP_PARALLEL->RUN) deserializes the rows, SCANS them with
+*"* /CTDI/CL_CNTRL_SCANNER, and ships the hits back as XSTRING. The worker
+*"* does NOT read the database - reading stays in the driver so there is no
+*"* key partitioning and no per-worker DB cursor.
+public section.
+
+  types:
+    " The scan work packet shipped driver -> worker. In the SLICE-MAP model
+    " the packet carries only a KEY RANGE (after_key, end_key] - NOT the rows.
+    " Each worker READS its own slice (bounded by that range) and scans it, so
+    " the heavy row reads run in parallel and nothing but tiny key tuples and
+    " the hit list cross the work-process boundary.
+    BEGIN OF ts_packet,
+             tablename TYPE tabname,
+             fields    TYPE /ctdi/cl_cntrl_scanner=>tt_field,   " char fields to scan
+             keys      TYPE /ctdi/cl_cntrl_scanner=>tt_field,   " key fields for keyinfo
+             keyflds   TYPE /ctdi/cl_cntrl_scanner=>tt_field,   " non-client key order
+             after_key TYPE /ctdi/cl_table_reader=>tt_keyval,  " resume strictly after
+             end_key   TYPE /ctdi/cl_table_reader=>tt_keyval,  " inclusive upper bound
+             scope     TYPE /ctdi/cl_cntrl_scanner=>ts_scope,
+             base_row  TYPE i,
+             max_rows  TYPE i,                                  " safety cap for the read
+           END OF ts_packet .
+    " Result of a parallel scan run.
+    TYPES: BEGIN OF ts_result,
+             hits      TYPE /ctdi/cl_cntrl_scanner=>tt_hit,
+             rows      TYPE i,            " total rows scanned
+             truncated TYPE abap_bool,    " stopped early at the hit ceiling
+             errors    TYPE string_table, " per-task error messages (if any)
+           END OF ts_result .
+
+    "! Drive a full-table control-char scan in PARALLEL, batched-wave model
+    "! (local path only). Each wave reads up to iv_pkgs_per_wave packages of
+    "! iv_pkg_size rows via READ_CHUNK (resuming by key, cursor closed before
+    "! the parallel RUN), ships them to worker processes to SCAN, and merges
+    "! the hits. Repeats until the table is exhausted or the hit ceiling is
+    "! reached. Reading is serial in this process; scanning is parallel.
+  class-methods RUN_PARALLEL_SCAN
+    importing
+      !IV_TABLE         type TABNAME
+      !IT_SCANFLDS      type /CTDI/CL_CNTRL_SCANNER=>TT_FIELD
+      !IT_KEYS          type /CTDI/CL_CNTRL_SCANNER=>TT_FIELD
+      !IT_KEYFLDS       type /CTDI/CL_CNTRL_SCANNER=>TT_FIELD
+      !IS_SCOPE         type /CTDI/CL_CNTRL_SCANNER=>TS_SCOPE
+      !IT_WHERE         type /CTDI/CL_TABLE_READER=>TT_WHERE optional
+      !IV_PKG_SIZE      type I default 50000
+      !IV_PKGS_PER_WAVE type I default 12
+      !IV_PERCENTAGE    type I default 50
+      !IV_HMAX          type I default 0
+      !IV_TOTAL_EST     type I default 0   " known row estimate (0 = count here)
+    returning
+      value(RS_RESULT)  type TS_RESULT .
+
+    "! Pick an adaptive package size + packages-per-wave from the total row
+    "! estimate and the ACTUAL parallel width. Policy (measured on DA1A):
+    "!  - target pack size ~50k, kept inside the band 40k..60k (smaller
+    "!    packs overlap better; the band gives the balancer room);
+    "!  - total pack count rounded to a multiple of the width W so every
+    "!    wave is full (no stranded work processes on the last wave);
+    "!  - when N is too small to fill a wave at the min pack size, accept
+    "!    one partial wave. Pure / deterministic (unit-tested).
+    "! @parameter iv_total   | estimated total rows to scan (positive)
+    "! @parameter iv_width   | actual parallel width W (WPs per wave, min 1)
+    "! @parameter ev_pkgsize | chosen package size (rows), in the 40k..60k band
+    "! @parameter ev_perwave | packages per wave (= iv_width, min 1)
+    CLASS-METHODS calc_sizing
+      IMPORTING iv_total   TYPE i
+                iv_width   TYPE i
+      EXPORTING ev_pkgsize TYPE i
+                ev_perwave TYPE i.
+
+    "! The ACTUAL parallel width CL_ABAP_PARALLEL would use for a given
+    "! percentage: percentage * free dialog WPs / 100, at least 1. Sizing to
+    "! this (not the requested per-wave count) avoids waves that strand WPs
+    "! because fewer were free than asked for.
+    CLASS-METHODS calc_width
+      IMPORTING iv_percentage   TYPE i DEFAULT 50
+      RETURNING VALUE(rv_width) TYPE i.
+
+    " Serialize a packet to the XSTRING that RUN transports (driver side).
+  class-methods SERIALIZE_PACKET
+    importing
+      !IS_PACKET type TS_PACKET
+    returning
+      value(RV_XML) type XSTRING .
+    " Deserialize the hit table from a worker result XSTRING (driver side).
+  class-methods DESERIALIZE_HITS
+    importing
+      !IV_XML type XSTRING
+    returning
+      value(RT_HITS) type /CTDI/CL_CNTRL_SCANNER=>TT_HIT .
+
+    " The parallel entry point, run in a separate work process (redefines
+    " the abstract CL_ABAP_PARALLEL->DO on this release - no IF_ABAP_PARALLEL).
+  methods DO
+    redefinition .
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
+
+
+  METHOD deserialize_hits.
+    CALL TRANSFORMATION id SOURCE XML iv_xml
+                           RESULT hits = rt_hits.
+  ENDMETHOD.
+
+
+  METHOD do.
+    " --- runs in a separate work process (slice-map model) -------------
+    " 1) deserialize the tiny packet (key range only, no rows)
+    DATA ls_packet TYPE ts_packet.
+    CALL TRANSFORMATION id SOURCE XML p_in
+                           RESULT packet = ls_packet.
+
+    " 2) READ this worker's own slice: rows strictly after after_key, up to
+    "    and including end_key, projected to the scanned fields (+ keys).
+    "    This is where the heavy row read happens - in parallel, per worker.
+    DATA(lo_reader) = NEW /ctdi/cl_table_reader( ).
+    DATA: lr_data   TYPE REF TO data,
+          lr_struct TYPE REF TO cl_abap_structdescr,
+          lt_last   TYPE /ctdi/cl_table_reader=>tt_keyval,
+          lv_count  TYPE i.
+    lo_reader->read_chunk(
+      EXPORTING iv_table   = ls_packet-tablename
+                it_where    = VALUE #( )
+                it_fields   = ls_packet-fields
+                it_keyflds  = ls_packet-keyflds
+                is_after    = ls_packet-after_key
+                is_until    = ls_packet-end_key
+                iv_max      = ls_packet-max_rows
+      IMPORTING er_data     = lr_data
+                er_struct   = lr_struct
+                et_last_key = lt_last
+                ev_count    = lv_count ).
+    FIELD-SYMBOLS <lt> TYPE STANDARD TABLE.
+    ASSIGN lr_data->* TO <lt>.
+
+    " 3) scan the slice (reuse the stateless scanner, with scope)
+    DATA(lt_hits) = /ctdi/cl_cntrl_scanner=>scan_table(
+                      it_data   = <lt>
+                      it_fields = ls_packet-fields
+                      it_keys   = ls_packet-keys
+                      is_scope  = ls_packet-scope ).
+
+    " 4) shift per-slice row numbers to absolute, serialize hits back
+    LOOP AT lt_hits ASSIGNING FIELD-SYMBOL(<h>).
+      <h>-rownum = <h>-rownum + ls_packet-base_row.
+    ENDLOOP.
+    CALL TRANSFORMATION id SOURCE hits = lt_hits
+                           RESULT XML p_out.
+  ENDMETHOD.
+
+
+  METHOD run_parallel_scan.
+    DATA(lo_reader) = NEW /ctdi/cl_table_reader( ).
+
+    " ---- resolve effective slice size + concurrency ceiling -----------
+    " iv_pkg_size <= 0 means AUTO: derive from the row estimate and the
+    " actual parallel width. A positive iv_pkg_size is an explicit override
+    " (adaptive is skipped, caller's wave count is honoured).
+    DATA lv_pkgsize TYPE i.
+    DATA lv_perwave TYPE i.
+    IF iv_pkg_size > 0.
+      lv_pkgsize = iv_pkg_size.
+      lv_perwave = iv_pkgs_per_wave.
+    ELSE.
+      " Row estimate: reuse the caller's known total (e.g. the selection
+      " screen already counted and cached it) to avoid a second expensive
+      " COUNT(*). Only count here when no estimate was supplied, and guard
+      " it (a failing / slow COUNT must not break the scan).
+      DATA lv_total TYPE i.
+      IF iv_total_est > 0.
+        lv_total = iv_total_est.
+      ELSE.
+        TRY.
+            IF it_where IS INITIAL.
+              SELECT COUNT(*) FROM (iv_table) INTO @lv_total.
+            ELSE.
+              SELECT COUNT(*) FROM (iv_table) INTO @lv_total WHERE (it_where).
+            ENDIF.
+          CATCH cx_root.
+            lv_total = 0.
+        ENDTRY.
+      ENDIF.
+      DATA(lv_width) = calc_width( iv_percentage ).
+      calc_sizing( EXPORTING iv_total   = lv_total
+                             iv_width   = lv_width
+                   IMPORTING ev_pkgsize = lv_pkgsize
+                             ev_perwave = lv_perwave ).
+    ENDIF.
+
+    " ---- PHASE 1: cheap keys-only probe -> slice map ------------------
+    " Probe at the target dispatch size: keys-only, so slicing is cheap, and
+    " each probe boundary becomes one dispatch slice directly (uniform size).
+    DATA(lt_slices) = lo_reader->probe_slices(
+                      iv_table      = iv_table
+                      it_where       = COND #( WHEN it_where IS SUPPLIED THEN it_where ELSE VALUE #( ) )
+                      iv_slice_size  = lv_pkgsize ).
+    rs_result-rows = REDUCE i( INIT s = 0 FOR <sf> IN lt_slices NEXT s = s + <sf>-rows ).
+
+    IF lt_slices IS INITIAL.
+      RETURN.   " nothing to scan (empty table or no usable key)
+    ENDIF.
+
+    " ---- PHASE 2: queue ALL slices into ONE RUN ----------------------
+    " CL_ABAP_PARALLEL->RUN keeps up to lv_perwave tasks in flight and, the
+    " instant any task finishes (END_TASK drops it below the ceiling), it
+    " dispatches the NEXT queued slice to that freed work process. Handing it
+    " the WHOLE slice list at once therefore gives a continuous sliding
+    " window - no wave barriers, no idle WPs - instead of lock-step waves.
+    " Each packet is tiny (a key range), so queuing them all costs nothing.
+    DATA lt_in TYPE cl_abap_parallel=>t_in_tab.
+    LOOP AT lt_slices ASSIGNING FIELD-SYMBOL(<sl2>).
+      APPEND serialize_packet( VALUE ts_packet(
+               tablename = iv_table
+               fields    = it_scanflds
+               keys      = it_keys
+               keyflds   = it_keyflds
+               after_key = <sl2>-after_key
+               end_key   = <sl2>-end_key
+               scope     = is_scope
+               base_row  = <sl2>-base_row
+               max_rows  = <sl2>-rows + 1 ) ) TO lt_in.   " +1 safety margin
+    ENDLOOP.
+
+    " Concurrency ceiling = parallel width (lv_perwave from sizing / caller).
+    DATA(lo_par) = NEW /ctdi/cl_scan_parallel(
+                     p_num_tasks  = lv_perwave
+                     p_percentage = iv_percentage ).
+
+    DATA lt_out TYPE cl_abap_parallel=>t_out_tab.
+    lo_par->run( EXPORTING p_in_tab  = lt_in
+                 IMPORTING p_out_tab = lt_out ).
+
+    " Collect hits from every slice (p_out_tab mirrors p_in_tab order).
+    LOOP AT lt_out ASSIGNING FIELD-SYMBOL(<o>).
+      IF <o>-message IS NOT INITIAL.
+        APPEND |Task { <o>-index }: { <o>-message }| TO rs_result-errors.
+        CONTINUE.
+      ENDIF.
+      APPEND LINES OF deserialize_hits( <o>-result ) TO rs_result-hits.
+    ENDLOOP.
+
+    " Hit ceiling: truncate exactly (all slices already ran - this just caps
+    " the reported/displayed hits; it cannot stop work mid-flight here).
+    IF iv_hmax > 0 AND lines( rs_result-hits ) >= iv_hmax.
+      DELETE rs_result-hits FROM iv_hmax + 1.
+      rs_result-truncated = abap_true.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD calc_sizing.
+    CONSTANTS: lc_min    TYPE i VALUE 40000,
+               lc_target TYPE i VALUE 50000,
+               lc_max    TYPE i VALUE 60000.
+
+    DATA(lv_w) = COND i( WHEN iv_width < 1 THEN 1 ELSE iv_width ).
+    ev_perwave = lv_w.
+
+    " Degenerate / unknown total: fall back to the measured sweet spot.
+    IF iv_total <= 0.
+      ev_pkgsize = lc_target.
+      RETURN.
+    ENDIF.
+
+    " NOTE: ABAP '/' ROUNDS (half-up), it does not truncate. For a correct
+    " ceiling we must use DIV (integer truncating division): ceil(a/b) =
+    " (a + b - 1) DIV b.
+    " Ideal number of ~target-sized packs (at least 1).
+    DATA(lv_ideal) = ( iv_total + lc_target - 1 ) DIV lc_target. " ceil
+    IF lv_ideal < 1.
+      lv_ideal = 1.
+    ENDIF.
+
+    " Round the pack count UP to a whole number of full waves, so no wave
+    " strands work processes. waves = ceil(ideal / W); packs = waves * W.
+    DATA(lv_waves) = ( lv_ideal + lv_w - 1 ) DIV lv_w.
+    IF lv_waves < 1.
+      lv_waves = 1.
+    ENDIF.
+    DATA(lv_packs) = lv_waves * lv_w.
+
+    " Rebalance pack size to fill those packs evenly.
+    ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.        " ceil
+
+    " Keep the pack size inside the [min,max] band. If it is too large,
+    " add whole waves (more, smaller packs) until it fits or we stop
+    " helping; if too small, drop whole waves (fewer, bigger packs) but
+    " never below one wave.
+    WHILE ev_pkgsize > lc_max.
+      lv_waves  = lv_waves + 1.
+      lv_packs  = lv_waves * lv_w.
+      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
+    ENDWHILE.
+
+    WHILE ev_pkgsize < lc_min AND lv_waves > 1.
+      lv_waves  = lv_waves - 1.
+      lv_packs  = lv_waves * lv_w.
+      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
+    ENDWHILE.
+
+    " Final safety clamp (small-N case can still land below min with one
+    " wave - that is an accepted partial wave; just cap at the band edges).
+    IF ev_pkgsize > lc_max.
+      ev_pkgsize = lc_max.
+    ENDIF.
+    IF ev_pkgsize < 1.
+      ev_pkgsize = 1.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD calc_width.
+    " Mirror CL_ABAP_PARALLEL=>GET_NUMBER_OF_PROCESSES: percentage of free
+    " dialog work processes, at least 1.
+    CONSTANTS lc_opcode TYPE syhex01 VALUE 25.
+    DATA lv_dia   TYPE i.
+    DATA lv_free  TYPE i.
+    CALL 'ThWpInfo' ID 'OPCODE'     FIELD lc_opcode
+                    ID 'DIAWP'      FIELD lv_dia
+                    ID 'FREE_DIAWP' FIELD lv_free.
+    rv_width = iv_percentage * lv_dia / 100.
+    IF rv_width < 1.
+      rv_width = 1.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD serialize_packet.
+    CALL TRANSFORMATION id SOURCE packet = is_packet
+                           RESULT XML rv_xml.
+  ENDMETHOD.
+ENDCLASS.
