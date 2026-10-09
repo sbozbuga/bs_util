@@ -651,8 +651,8 @@ START-OF-SELECTION.
       " surface any per-task errors as a partial-result flag
       IF ls_pres-errors IS NOT INITIAL.
         gv_error = abap_true.
-        LOOP AT ls_pres-errors INTO DATA(lv_perr).
-          WRITE: / 'Parallel task error:', lv_perr.
+        LOOP AT ls_pres-errors ASSIGNING FIELD-SYMBOL(<lv_perr>).
+          WRITE: / 'Parallel task error:', <lv_perr>.
         ENDLOOP.
       ENDIF.
 
@@ -874,11 +874,11 @@ FORM f4_codepoint USING pv_dynprofield TYPE help_info-dynprofld.
     RETURN.
   ENDIF.
 
-  READ TABLE lt_cpret INTO DATA(ls_cpret) INDEX 1.
+  READ TABLE lt_cpret ASSIGNING FIELD-SYMBOL(<ls_cpret>) INDEX 1.
   " Write the chosen hex code back into the triggering screen field.
   DATA lt_upd TYPE TABLE OF dynpread.
   APPEND VALUE #( fieldname  = pv_dynprofield
-                  fieldvalue = ls_cpret-fieldval ) TO lt_upd.
+                  fieldvalue = <ls_cpret>-fieldval ) TO lt_upd.
   CALL FUNCTION 'DYNP_VALUES_UPDATE'
     EXPORTING
       dyname     = sy-repid

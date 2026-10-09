@@ -56,6 +56,7 @@ public section.
       !IV_PERCENTAGE    type I default 50
       !IV_HMAX          type I default 0
       !IV_TOTAL_EST     type I default 0   " known row estimate (0 = count here)
+      !IV_GROUP         type rfcservergroup optional
     returning
       value(RS_RESULT)  type TS_RESULT .
 
@@ -214,6 +215,40 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
       RETURN.   " nothing to scan (empty table or no usable key)
     ENDIF.
 
+    " ---- Fast path: SINGLE slice runs directly in-process -------------
+    " Avoids aRFC dispatch, XML serialization, and WP context switches for small tables
+    IF lines( lt_slices ) = 1.
+      ASSIGN lt_slices[ 1 ] TO FIELD-SYMBOL(<sl_single>).
+      DATA: lr_data_single   TYPE REF TO data,
+            lr_struct_single TYPE REF TO cl_abap_structdescr,
+            lt_last_single   TYPE /ctdi/cl_table_reader=>tt_keyval,
+            lv_count_single  TYPE i.
+      lo_reader->read_chunk(
+        EXPORTING iv_table    = iv_table
+                  it_where    = COND #( WHEN it_where IS SUPPLIED THEN it_where ELSE VALUE #( ) )
+                  it_fields   = it_scanflds
+                  it_keyflds  = it_keyflds
+                  is_after    = <sl_single>-after_key
+                  is_until    = <sl_single>-end_key
+                  iv_max      = <sl_single>-rows + 1000
+        IMPORTING er_data     = lr_data_single
+                  er_struct   = lr_struct_single
+                  et_last_key = lt_last_single
+                  ev_count    = lv_count_single ).
+      FIELD-SYMBOLS <lt_single> TYPE STANDARD TABLE.
+      ASSIGN lr_data_single->* TO <lt_single>.
+      rs_result-hits = /ctdi/cl_cntrl_scanner=>scan_table(
+                         it_data   = <lt_single>
+                         it_fields = it_scanflds
+                         it_keys   = it_keys
+                         is_scope  = is_scope ).
+      IF iv_hmax > 0 AND lines( rs_result-hits ) >= iv_hmax.
+        DELETE rs_result-hits FROM iv_hmax + 1.
+        rs_result-truncated = abap_true.
+      ENDIF.
+      RETURN.
+    ENDIF.
+
     " ---- PHASE 2: queue ALL slices into ONE RUN ----------------------
     " CL_ABAP_PARALLEL->RUN keeps up to lv_perwave tasks in flight and, the
     " instant any task finishes (END_TASK drops it below the ceiling), it
@@ -223,6 +258,7 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
     " Each packet is tiny (a key range), so queuing them all costs nothing.
     DATA lt_in TYPE cl_abap_parallel=>t_in_tab.
     LOOP AT lt_slices ASSIGNING FIELD-SYMBOL(<sl2>).
+      DATA(lv_max_cap) = <sl2>-rows + 1000.  " generous cap guards against dropping concurrent inserts
       APPEND serialize_packet( VALUE ts_packet(
                tablename = iv_table
                fields    = it_scanflds
@@ -232,13 +268,19 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
                end_key   = <sl2>-end_key
                scope     = is_scope
                base_row  = <sl2>-base_row
-               max_rows  = <sl2>-rows + 1 ) ) TO lt_in.   " +1 safety margin
+               max_rows  = lv_max_cap ) ) TO lt_in.
     ENDLOOP.
 
     " Concurrency ceiling = parallel width (lv_perwave from sizing / caller).
-    DATA(lo_par) = NEW /ctdi/cl_scan_parallel(
-                     p_num_tasks  = lv_perwave
-                     p_percentage = iv_percentage ).
+    DATA(lo_par) = COND #(
+      WHEN iv_group IS NOT INITIAL
+      THEN NEW /ctdi/cl_scan_parallel(
+             p_num_tasks  = lv_perwave
+             p_percentage = iv_percentage
+             p_group      = iv_group )
+      ELSE NEW /ctdi/cl_scan_parallel(
+             p_num_tasks  = lv_perwave
+             p_percentage = iv_percentage ) ).
 
     DATA lt_out TYPE cl_abap_parallel=>t_out_tab.
     lo_par->run( EXPORTING p_in_tab  = lt_in

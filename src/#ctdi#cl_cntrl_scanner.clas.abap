@@ -211,6 +211,22 @@ CLASS /ctdi/cl_cntrl_scanner DEFINITION
       IMPORTING iv_cp            TYPE i
       RETURNING VALUE(rv_result) TYPE abap_bool.
 
+    " Fast component-index mapping for scan_table: maps field name to structure position
+    TYPES: BEGIN OF ts_comp_map,
+             index TYPE i,
+             name  TYPE fieldname,
+           END OF ts_comp_map,
+           tt_comp_map TYPE STANDARD TABLE OF ts_comp_map WITH EMPTY KEY.
+
+    " Scan one row by pre-resolved integer component positions (direct kernel dereference)
+    CLASS-METHODS scan_row_by_index
+      IMPORTING is_data     TYPE any
+                it_comp_map TYPE tt_comp_map
+                it_keys     TYPE tt_field OPTIONAL
+                iv_row      TYPE i
+                iv_chars    TYPE string
+      CHANGING  ct_hits     TYPE tt_hit.
+
     " Readable name for a control code point, e.g. 'LF (line feed)'.
     CLASS-METHODS cp_descr
       IMPORTING iv_cp           TYPE i
@@ -350,7 +366,8 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
         DATA lv_lo TYPE i.
         DATA lv_hi TYPE i.
         IF lv_tok CA '-'.
-          SPLIT lv_tok AT '-' INTO DATA(lv_a) DATA(lv_b).
+          DATA: lv_a TYPE string, lv_b TYPE string.
+          SPLIT lv_tok AT '-' INTO lv_a lv_b.
           lv_lo = hex_to_int( lv_a ).
           lv_hi = hex_to_int( lv_b ).
         ELSE.
@@ -616,20 +633,85 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
     ENDIF.
 
     " Resolve the effective control-character set ONCE for the whole table
-    " (not per row) and reuse it for every row via scan_row_resolved.
+    " (not per row) and reuse it for every row.
     DATA(lv_chars) = build_scan_set( is_scope ).
 
-    DATA(lv_row) = 0.
-    LOOP AT it_data ASSIGNING FIELD-SYMBOL(<row>).
-      lv_row = lv_row + 1.
-      scan_row_resolved( EXPORTING is_data       = <row>
-                                   it_fields     = it_fields
-                                   it_keys       = lt_clean_keys
-                                   iv_row        = lv_row
-                                   iv_check_clnt = abap_false
-                                   iv_chars      = lv_chars
-                         CHANGING  ct_hits       = rt_hits ).
+    " Pre-resolve field names to 1-based integer component positions using the first row.
+    " Direct index-based dereference (ASSIGN COMPONENT idx) bypasses string hash lookups.
+    DATA lt_comp_map TYPE tt_comp_map.
+    LOOP AT it_data ASSIGNING FIELD-SYMBOL(<sample_row>).
+      DATA(lr_typedescr) = cl_abap_typedescr=>describe_by_data( <sample_row> ).
+      IF lr_typedescr->kind = cl_abap_typedescr=>kind_struct.
+        DATA(lr_struct) = CAST cl_abap_structdescr( lr_typedescr ).
+        DATA(lt_components) = lr_struct->get_components( ).
+        LOOP AT it_fields ASSIGNING FIELD-SYMBOL(<fld_name>).
+          DATA(lv_fname) = to_upper( <fld_name> ).
+          READ TABLE lt_components TRANSPORTING NO FIELDS WITH KEY name = lv_fname.
+          IF sy-subrc = 0.
+            APPEND VALUE #( index = sy-tabix name = <fld_name> ) TO lt_comp_map.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+      EXIT.
     ENDLOOP.
+
+    DATA(lv_row) = 0.
+    IF lt_comp_map IS NOT INITIAL.
+      LOOP AT it_data ASSIGNING FIELD-SYMBOL(<row_idx>).
+        lv_row = lv_row + 1.
+        scan_row_by_index( EXPORTING is_data     = <row_idx>
+                                     it_comp_map = lt_comp_map
+                                     it_keys     = lt_clean_keys
+                                     iv_row      = lv_row
+                                     iv_chars    = lv_chars
+                           CHANGING  ct_hits     = rt_hits ).
+      ENDLOOP.
+    ELSE.
+      LOOP AT it_data ASSIGNING FIELD-SYMBOL(<row>).
+        lv_row = lv_row + 1.
+        scan_row_resolved( EXPORTING is_data       = <row>
+                                     it_fields     = it_fields
+                                     it_keys       = lt_clean_keys
+                                     iv_row        = lv_row
+                                     iv_check_clnt = abap_false
+                                     iv_chars      = lv_chars
+                           CHANGING  ct_hits       = rt_hits ).
+      ENDLOOP.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD scan_row_by_index.
+    DATA lt_row_hits TYPE tt_hit.
+    FIELD-SYMBOLS <fld> TYPE any.
+
+    LOOP AT it_comp_map ASSIGNING FIELD-SYMBOL(<comp>).
+      ASSIGN COMPONENT <comp>-index OF STRUCTURE is_data TO <fld>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      IF <fld> NA iv_chars.
+        CONTINUE.
+      ENDIF.
+      scan_value( EXPORTING iv_row     = iv_row
+                            iv_keyinfo = ``
+                            iv_field   = <comp>-name
+                            iv_value   = CONV string( <fld> )
+                            iv_chars   = iv_chars
+                  CHANGING  ct_hits    = lt_row_hits ).
+    ENDLOOP.
+
+    IF lt_row_hits IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_keyinfo) = build_keyinfo( is_data       = is_data
+                                      it_keys       = it_keys
+                                      iv_check_clnt = abap_false ).
+    LOOP AT lt_row_hits ASSIGNING FIELD-SYMBOL(<h>).
+      <h>-keyinfo = lv_keyinfo.
+    ENDLOOP.
+    APPEND LINES OF lt_row_hits TO ct_hits.
   ENDMETHOD.
 
 

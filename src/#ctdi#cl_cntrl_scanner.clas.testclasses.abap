@@ -38,7 +38,8 @@ CLASS ltcl_scanner DEFINITION FINAL FOR TESTING
              has_control_excludes_special FOR TESTING,
              " extra_cp parsing (ranges, separators, malformed, out of range)
              extra_cp_range_and_commas    FOR TESTING,
-             extra_cp_malformed_ignored   FOR TESTING.
+             extra_cp_malformed_ignored   FOR TESTING,
+             scan_table_matches_row_scan  FOR TESTING.
 ENDCLASS.
 
 CLASS ltcl_scanner IMPLEMENTATION.
@@ -315,6 +316,32 @@ CLASS ltcl_scanner IMPLEMENTATION.
       exp = 1 act = lines( lt )
       msg = 'malformed/reversed tokens ignored; valid 0A still detected' ).
     cl_abap_unit_assert=>assert_equals( exp = '0x0A' act = lt[ 1 ]-hexcode ).
+  ENDMETHOD.
+
+  METHOD scan_table_matches_row_scan.
+    " Index-based scan_table must produce identical results to scan_row
+    DATA lt_data TYPE tt_row.
+    APPEND VALUE #( id = '0010' name1 = 'clean' name2 = |first{ cl_abap_char_utilities=>newline }field| ) TO lt_data.
+    APPEND VALUE #( id = '0011' name1 = |second{ cl_abap_char_utilities=>horizontal_tab }field| remark = 'clean' ) TO lt_data.
+
+    DATA(lt_table_hits) = /ctdi/cl_cntrl_scanner=>scan_table(
+                            it_data   = lt_data
+                            it_fields = all_fields( ) ).
+
+    DATA lt_row_hits TYPE /ctdi/cl_cntrl_scanner=>tt_hit.
+    DATA lv_idx TYPE i.
+    LOOP AT lt_data ASSIGNING FIELD-SYMBOL(<row>).
+      lv_idx = lv_idx + 1.
+      DATA(lt_hits) = /ctdi/cl_cntrl_scanner=>scan_row(
+                        is_data   = <row>
+                        it_fields = all_fields( )
+                        iv_row    = lv_idx ).
+      APPEND LINES OF lt_hits TO lt_row_hits.
+    ENDLOOP.
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = lt_row_hits act = lt_table_hits
+      msg = 'Index-resolved scan_table must produce identical hits to scan_row' ).
   ENDMETHOD.
 
 ENDCLASS.

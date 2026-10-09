@@ -149,9 +149,9 @@ CLASS ltcl_parallel IMPLEMENTATION.
     DATA lv_wave TYPE i.
     DATA lt_totals TYPE STANDARD TABLE OF i.
     lt_totals = VALUE #( ( 300000 ) ( 777777 ) ( 1234567 ) ( 5000000 ) ( 9999999 ) ).
-    LOOP AT lt_totals INTO DATA(lv_n).
+    LOOP AT lt_totals ASSIGNING FIELD-SYMBOL(<lv_n>).
       /ctdi/cl_scan_parallel=>calc_sizing(
-        EXPORTING iv_total = lv_n iv_width = 5
+        EXPORTING iv_total = <lv_n> iv_width = 5
         IMPORTING ev_pkgsize = lv_size ev_perwave = lv_wave ).
       cl_abap_unit_assert=>assert_true(
         act = xsdbool( lv_size >= 40000 AND lv_size <= 60000 )

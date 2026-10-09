@@ -317,10 +317,10 @@ CLASS ltcl_reader IMPLEMENTATION.
 
     " capture the first row's key tuple as text
     DATA lt_after TYPE /ctdi/cl_table_reader=>tt_keyval.
-    LOOP AT lt_keyf INTO DATA(lv_kf).
+    LOOP AT lt_keyf ASSIGNING FIELD-SYMBOL(<lv_kf>).
       FIELD-SYMBOLS <kv> TYPE any.
-      ASSIGN COMPONENT lv_kf OF STRUCTURE <r1> TO <kv>.
-      APPEND VALUE #( field = lv_kf value = |{ <kv> }| ) TO lt_after.
+      ASSIGN COMPONENT <lv_kf> OF STRUCTURE <r1> TO <kv>.
+      APPEND VALUE #( field = <lv_kf> value = |{ <kv> }| ) TO lt_after.
     ENDLOOP.
 
     DATA(lv_resume) = mo_cut->build_resume_where( lt_after ).
@@ -344,11 +344,11 @@ CLASS ltcl_reader IMPLEMENTATION.
       " build both key tuples as concatenated text and assert r2 > r1
       DATA lv_k1 TYPE string.
       DATA lv_k2 TYPE string.
-      LOOP AT lt_keyf INTO lv_kf.
+      LOOP AT lt_keyf ASSIGNING FIELD-SYMBOL(<lv_kf_cmp>).
         FIELD-SYMBOLS <a> TYPE any.
         FIELD-SYMBOLS <b> TYPE any.
-        ASSIGN COMPONENT lv_kf OF STRUCTURE <r1> TO <a>.
-        ASSIGN COMPONENT lv_kf OF STRUCTURE <r2> TO <b>.
+        ASSIGN COMPONENT <lv_kf_cmp> OF STRUCTURE <r1> TO <a>.
+        ASSIGN COMPONENT <lv_kf_cmp> OF STRUCTURE <r2> TO <b>.
         lv_k1 = |{ lv_k1 }#{ <a> }|.
         lv_k2 = |{ lv_k2 }#{ <b> }|.
       ENDLOOP.
@@ -405,13 +405,13 @@ CLASS ltcl_reader IMPLEMENTATION.
       ASSIGN lr_d2->* TO <lt2>.
       READ TABLE <lt2> ASSIGNING <r2> INDEX 1.
       DATA lv_first2 TYPE string.
-      LOOP AT lt_keyf INTO DATA(lv_kf).
-        ASSIGN COMPONENT lv_kf OF STRUCTURE <r2> TO FIELD-SYMBOL(<v2>).
+      LOOP AT lt_keyf ASSIGNING FIELD-SYMBOL(<lv_kf2>).
+        ASSIGN COMPONENT <lv_kf2> OF STRUCTURE <r2> TO FIELD-SYMBOL(<v2>).
         lv_first2 = |{ lv_first2 }#{ <v2> }|.
       ENDLOOP.
       DATA lv_last1 TYPE string.
-      LOOP AT lt_last1 INTO DATA(ls_lk).
-        lv_last1 = |{ lv_last1 }#{ ls_lk-value }|.
+      LOOP AT lt_last1 ASSIGNING FIELD-SYMBOL(<ls_lk>).
+        lv_last1 = |{ lv_last1 }#{ <ls_lk>-value }|.
       ENDLOOP.
       cl_abap_unit_assert=>assert_true(
         act = xsdbool( lv_first2 > lv_last1 )

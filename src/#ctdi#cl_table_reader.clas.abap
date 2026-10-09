@@ -479,10 +479,12 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
     IF ev_count > 0.
       FIELD-SYMBOLS <last> TYPE any.
       READ TABLE <lt_data> ASSIGNING <last> INDEX ev_count.
+      DATA lv_key_str TYPE string.
       LOOP AT it_keyflds ASSIGNING FIELD-SYMBOL(<kf2>).
         ASSIGN COMPONENT <kf2> OF STRUCTURE <last> TO FIELD-SYMBOL(<kv>).
         IF sy-subrc = 0.
-          APPEND VALUE #( field = <kf2> value = |{ <kv> }| ) TO et_last_key.
+          lv_key_str = <kv>.
+          APPEND VALUE #( field = <kf2> value = lv_key_str ) TO et_last_key.
         ENDIF.
       ENDLOOP.
     ENDIF.
@@ -508,11 +510,14 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    " column list = the key fields only (keys-only probe)
-    DATA lv_cols TYPE string.
+    " column list = the key fields only (keys-only probe), matching key order
+    DATA lv_cols  TYPE string.
+    DATA lv_order TYPE string.
     LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf>).
       lv_cols = COND #( WHEN lv_cols IS INITIAL THEN <kf>
                         ELSE |{ lv_cols }, { <kf> }| ).
+      lv_order = COND #( WHEN lv_order IS INITIAL THEN |{ <kf> } ASCENDING|
+                         ELSE |{ lv_order }, { <kf> } ASCENDING| ).
     ENDLOOP.
 
     " dynamic key-only line type
@@ -534,13 +539,13 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
     DATA lv_base  TYPE i.
     DATA lv_no    TYPE i.
 
-    " keys-only package sweep in primary-key order, buffer bypassed
+    " keys-only package sweep in non-client key order, buffer bypassed
     SELECT (lv_cols) FROM (iv_table)
-      INTO CORRESPONDING FIELDS OF TABLE @<lt_pkg>
+      INTO TABLE @<lt_pkg>
       PACKAGE SIZE @iv_slice_size
       BYPASSING BUFFER
       WHERE (it_where)
-      ORDER BY PRIMARY KEY.
+      ORDER BY (lv_order).
 
       DATA(lv_rows) = lines( <lt_pkg> ).
       IF lv_rows = 0.
@@ -553,9 +558,11 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
       CLEAR lt_end.
       FIELD-SYMBOLS <last> TYPE any.
       READ TABLE <lt_pkg> ASSIGNING <last> INDEX lv_rows.
+      DATA lv_end_str TYPE string.
       LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf3>).
         ASSIGN COMPONENT <kf3> OF STRUCTURE <last> TO FIELD-SYMBOL(<kv>).
-        APPEND VALUE #( field = <kf3> value = |{ <kv> }| ) TO lt_end.
+        lv_end_str = <kv>.
+        APPEND VALUE #( field = <kf3> value = lv_end_str ) TO lt_end.
       ENDLOOP.
 
       APPEND VALUE ts_slice( slice_no  = lv_no
