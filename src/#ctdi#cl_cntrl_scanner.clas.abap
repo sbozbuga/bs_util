@@ -8,6 +8,8 @@ CLASS /ctdi/cl_cntrl_scanner DEFINITION
 *"* passes the field-name list in. Works on any flat structure/table.
 
   PUBLIC SECTION.
+    INTERFACES /ctdi/if_inspection_rule .
+
     " One control-character finding.
     TYPES: BEGIN OF ts_hit,
              rownum  TYPE i,         " row number within the scanned set
@@ -47,6 +49,10 @@ CLASS /ctdi/cl_cntrl_scanner DEFINITION
              special  TYPE abap_bool,
              extra_cp TYPE string,
            END OF ts_scope.
+
+    METHODS constructor
+      IMPORTING
+        !is_scope TYPE ts_scope OPTIONAL .
 
     CLASS-METHODS class_constructor.
 
@@ -166,6 +172,8 @@ CLASS /ctdi/cl_cntrl_scanner DEFINITION
     CLASS-DATA gv_c1       TYPE string.   " C1 0x80-0x9F
     CLASS-DATA gv_special  TYPE string.   " NBSP + zero-width / BOM (from gt_special)
 
+    DATA ms_scope TYPE ts_scope .
+
     " Resolve a scope into the effective character set used by the CA/NA
     " scans. An initial scope yields the full set (backward compatible).
     CLASS-METHODS build_scan_set
@@ -237,6 +245,38 @@ ENDCLASS.
 
 
 CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
+
+
+  METHOD constructor.
+    ms_scope = is_scope.
+  ENDMETHOD.
+
+
+  METHOD /ctdi/if_inspection_rule~get_rule_id.
+    rv_id = 'CONTROL_CHARS'.
+  ENDMETHOD.
+
+
+  METHOD /ctdi/if_inspection_rule~inspect_row.
+    rt_violations = scan_row( is_data   = is_data
+                              it_fields = it_fields
+                              it_keys   = it_keys
+                              iv_row    = iv_row
+                              is_scope  = ms_scope ).
+  ENDMETHOD.
+
+
+  METHOD /ctdi/if_inspection_rule~inspect_table.
+    rt_violations = scan_table( it_data   = it_data
+                                it_fields = it_fields
+                                it_keys   = it_keys
+                                is_scope  = ms_scope ).
+  ENDMETHOD.
+
+
+  METHOD /ctdi/if_inspection_rule~get_db_filter.
+    CLEAR rv_filter.
+  ENDMETHOD.
 
 
   METHOD build_keyinfo.

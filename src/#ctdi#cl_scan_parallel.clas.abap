@@ -84,6 +84,7 @@ public section.
     "! because fewer were free than asked for.
     CLASS-METHODS calc_width
       IMPORTING iv_percentage   TYPE i DEFAULT 50
+                iv_group        TYPE rfcservergroup OPTIONAL
       RETURNING VALUE(rv_width) TYPE i.
 
     " Serialize a packet to the XSTRING that RUN transports (driver side).
@@ -113,8 +114,16 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
 
 
   METHOD deserialize_hits.
-    CALL TRANSFORMATION id SOURCE XML iv_xml
-                           RESULT hits = rt_hits.
+    TRY.
+        IMPORT hits = rt_hits FROM DATA BUFFER iv_xml.
+        IF sy-subrc <> 0.
+          CALL TRANSFORMATION id SOURCE XML iv_xml
+                                 RESULT hits = rt_hits.
+        ENDIF.
+      CATCH cx_root.
+        CALL TRANSFORMATION id SOURCE XML iv_xml
+                               RESULT hits = rt_hits.
+    ENDTRY.
   ENDMETHOD.
 
 
@@ -122,8 +131,16 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
     " --- runs in a separate work process (slice-map model) -------------
     " 1) deserialize the tiny packet (key range only, no rows)
     DATA ls_packet TYPE ts_packet.
-    CALL TRANSFORMATION id SOURCE XML p_in
-                           RESULT packet = ls_packet.
+    TRY.
+        IMPORT packet = ls_packet FROM DATA BUFFER p_in.
+        IF sy-subrc <> 0.
+          CALL TRANSFORMATION id SOURCE XML p_in
+                                 RESULT packet = ls_packet.
+        ENDIF.
+      CATCH cx_root.
+        CALL TRANSFORMATION id SOURCE XML p_in
+                               RESULT packet = ls_packet.
+    ENDTRY.
 
     " 2) READ this worker's own slice: rows strictly after after_key, up to
     "    and including end_key, projected to the scanned fields (+ keys).
@@ -159,8 +176,7 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
     LOOP AT lt_hits ASSIGNING FIELD-SYMBOL(<h>).
       <h>-rownum = <h>-rownum + ls_packet-base_row.
     ENDLOOP.
-    CALL TRANSFORMATION id SOURCE hits = lt_hits
-                           RESULT XML p_out.
+    EXPORT hits = lt_hits TO DATA BUFFER p_out.
   ENDMETHOD.
 
 
@@ -195,7 +211,8 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
             lv_total = 0.
         ENDTRY.
       ENDIF.
-      DATA(lv_width) = calc_width( iv_percentage ).
+      DATA(lv_width) = calc_width( iv_percentage = iv_percentage
+                                   iv_group      = iv_group ).
       calc_sizing( EXPORTING iv_total   = lv_total
                              iv_width   = lv_width
                    IMPORTING ev_pkgsize = lv_pkgsize
@@ -366,15 +383,36 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
 
 
   METHOD calc_width.
-    " Mirror CL_ABAP_PARALLEL=>GET_NUMBER_OF_PROCESSES: percentage of free
-    " dialog work processes, at least 1.
-    CONSTANTS lc_opcode TYPE syhex01 VALUE 25.
-    DATA lv_dia   TYPE i.
-    DATA lv_free  TYPE i.
-    CALL 'ThWpInfo' ID 'OPCODE'     FIELD lc_opcode
-                    ID 'DIAWP'      FIELD lv_dia
-                    ID 'FREE_DIAWP' FIELD lv_free.
-    rv_width = iv_percentage * lv_dia / 100.
+    " Determine available dialog/background processes cleanly using
+    " SPBT_GET_PP_INFO (for RFC server groups) or TH_WP_INFO (for local server).
+    " Avoids non-standard C-kernel calls (CALL 'ThWpInfo') to comply with SAP Clean Core.
+    DATA lv_free TYPE i.
+    IF iv_group IS NOT INITIAL.
+      CALL FUNCTION 'SPBT_GET_PP_INFO'
+        EXPORTING
+          rfcgr        = iv_group
+        IMPORTING
+          free_pbt_wps = lv_free
+        EXCEPTIONS
+          OTHERS       = 1.
+    ENDIF.
+
+    IF lv_free <= 0.
+      DATA lt_wp TYPE TABLE OF wpinfo.
+      CALL FUNCTION 'TH_WP_INFO'
+        TABLES
+          wplist = lt_wp
+        EXCEPTIONS
+          OTHERS = 1.
+      IF sy-subrc = 0.
+        " Count free DIA work processes (typ = 1 = DIA, wp_istatus = 2 = waiting/free)
+        LOOP AT lt_wp TRANSPORTING NO FIELDS WHERE wp_typ = 1 AND wp_istatus = 2.
+          lv_free = lv_free + 1.
+        ENDLOOP.
+      ENDIF.
+    ENDIF.
+
+    rv_width = iv_percentage * lv_free / 100.
     IF rv_width < 1.
       rv_width = 1.
     ENDIF.
@@ -382,7 +420,6 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
 
 
   METHOD serialize_packet.
-    CALL TRANSFORMATION id SOURCE packet = is_packet
-                           RESULT XML rv_xml.
+    EXPORT packet = is_packet TO DATA BUFFER rv_xml.
   ENDMETHOD.
 ENDCLASS.

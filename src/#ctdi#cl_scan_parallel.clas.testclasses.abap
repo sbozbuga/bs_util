@@ -24,6 +24,10 @@ CLASS ltcl_parallel DEFINITION FINAL FOR TESTING
       RETURNING VALUE(rt) TYPE /ctdi/cl_cntrl_scanner=>tt_field.
     METHODS: rows_roundtrip_keeps_hits FOR TESTING,
              nul_survives_transport    FOR TESTING,
+             packet_binary_roundtrip   FOR TESTING,
+             hits_binary_roundtrip_with_nul FOR TESTING,
+             legacy_xml_hits_fallback  FOR TESTING,
+             calc_width_non_zero       FOR TESTING,
              " adaptive sizing (pure, deterministic)
              sizing_1m_exact_50k        FOR TESTING,
              sizing_rounds_to_full_wave FOR TESTING,
@@ -192,6 +196,55 @@ CLASS ltcl_parallel IMPLEMENTATION.
       IMPORTING ev_pkgsize = lv_size ev_perwave = lv_wave ).
     cl_abap_unit_assert=>assert_equals( exp = 1 act = lv_wave ).
     cl_abap_unit_assert=>assert_true( act = xsdbool( lv_size > 0 ) ).
+  ENDMETHOD.
+
+  METHOD packet_binary_roundtrip.
+    DATA ls_packet TYPE /ctdi/cl_scan_parallel=>ts_packet.
+    ls_packet-tablename = 'VTRKH'.
+    ls_packet-base_row  = 100.
+    ls_packet-max_rows  = 50000.
+    ls_packet-scope     = VALUE #( common = abap_true c0_other = abap_true ).
+
+    DATA(lv_raw) = /ctdi/cl_scan_parallel=>serialize_packet( ls_packet ).
+    cl_abap_unit_assert=>assert_not_initial(
+      act = lv_raw msg = 'Serialized packet must not be empty' ).
+
+    DATA ls_back TYPE /ctdi/cl_scan_parallel=>ts_packet.
+    IMPORT packet = ls_back FROM DATA BUFFER lv_raw.
+    cl_abap_unit_assert=>assert_equals(
+      exp = ls_packet act = ls_back msg = 'Binary packet round-trip must match' ).
+  ENDMETHOD.
+
+  METHOD hits_binary_roundtrip_with_nul.
+    DATA lt_hits TYPE /ctdi/cl_cntrl_scanner=>tt_hit.
+    APPEND VALUE #( rownum = 1 keyinfo = 'K=1' field = 'F1' offset = 2
+                    hexcode = '0x00' descr = 'NUL' ) TO lt_hits.
+
+    DATA lv_raw TYPE xstring.
+    EXPORT hits = lt_hits TO DATA BUFFER lv_raw.
+
+    DATA(lt_back) = /ctdi/cl_scan_parallel=>deserialize_hits( lv_raw ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = lt_hits act = lt_back msg = 'Binary hits roundtrip must preserve NUL hit' ).
+  ENDMETHOD.
+
+  METHOD legacy_xml_hits_fallback.
+    DATA lt_hits TYPE /ctdi/cl_cntrl_scanner=>tt_hit.
+    APPEND VALUE #( rownum = 1 keyinfo = 'K=2' field = 'F2' offset = 0
+                    hexcode = '0x0A' descr = 'LF' ) TO lt_hits.
+
+    DATA lv_xml TYPE xstring.
+    CALL TRANSFORMATION id SOURCE hits = lt_hits RESULT XML lv_xml.
+
+    DATA(lt_back) = /ctdi/cl_scan_parallel=>deserialize_hits( lv_xml ).
+    cl_abap_unit_assert=>assert_equals(
+      exp = lt_hits act = lt_back msg = 'Legacy XML hits must still deserialize' ).
+  ENDMETHOD.
+
+  METHOD calc_width_non_zero.
+    DATA(lv_w) = /ctdi/cl_scan_parallel=>calc_width( 50 ).
+    cl_abap_unit_assert=>assert_true(
+      act = xsdbool( lv_w >= 1 ) msg = 'calc_width must always return at least 1' ).
   ENDMETHOD.
 
 ENDCLASS.

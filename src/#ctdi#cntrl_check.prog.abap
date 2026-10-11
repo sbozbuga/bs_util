@@ -112,6 +112,7 @@ PARAMETERS: p_mfst RADIOBUTTON GROUP mod DEFAULT 'X'
             p_hmax TYPE i DEFAULT 0,               " stop after N hits (0 = all)
             p_par  AS CHECKBOX USER-COMMAND parsel,    " parallel scan (Full)
             p_pct  TYPE i DEFAULT 50,                  " % of dialog WPs (parallel)
+            p_grp  TYPE rfcservergroup DEFAULT 'parallel_generators', " RFC server group
             p_auto AS CHECKBOX DEFAULT 'X'.            " auto pack sizing (parallel)
   " Live preview of the AUTO sizing (parallel): rows + chosen pack size and
   " the resulting packs / waves. Recomputed when the table or options change.
@@ -266,7 +267,8 @@ AT SELECTION-SCREEN OUTPUT.
       ENDTRY.
       gv_cnt_tab = p_tab.
     ENDIF.
-    DATA(lv_w)  = /ctdi/cl_scan_parallel=>calc_width( p_pct ).
+    DATA(lv_w)  = /ctdi/cl_scan_parallel=>calc_width( iv_percentage = p_pct
+                                                      iv_group      = p_grp ).
     DATA lv_ps TYPE i.
     DATA lv_pw TYPE i.
     /ctdi/cl_scan_parallel=>calc_sizing( EXPORTING iv_total   = gv_cnt_rows
@@ -303,7 +305,8 @@ AT SELECTION-SCREEN OUTPUT.
        AND ( screen-name = 'P_MFST' OR screen-name = 'P_MLST'
           OR screen-name = 'P_MFUL' OR screen-name = 'P_PKG'
           OR screen-name = 'P_HMAX' OR screen-name = 'P_PAR'
-          OR screen-name = 'P_PCT'  OR screen-name = 'P_AUTO'
+          OR screen-name = 'P_PCT'  OR screen-name = 'P_GRP'
+          OR screen-name = 'P_AUTO'
           OR screen-name = 'P_CMN'  OR screen-name = 'P_C0'
           OR screen-name = 'P_C1'   OR screen-name = 'P_SPC' ).
       screen-input = 0.
@@ -313,13 +316,13 @@ AT SELECTION-SCREEN OUTPUT.
     " Package size / hit ceiling / parallel options apply only to Full
     IF ( screen-name = 'P_PKG'  OR screen-name = 'P_HMAX'
       OR screen-name = 'P_PAR'  OR screen-name = 'P_PCT'
-      OR screen-name = 'P_AUTO' )
+      OR screen-name = 'P_GRP'  OR screen-name = 'P_AUTO' )
        AND p_mful = abap_false.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Process-% and auto-sizing only matter when parallel is on
-    IF ( screen-name = 'P_PCT' OR screen-name = 'P_AUTO' )
+    " Process-%, server group, and auto-sizing only matter when parallel is on
+    IF ( screen-name = 'P_PCT' OR screen-name = 'P_GRP' OR screen-name = 'P_AUTO' )
        AND p_par = abap_false.
       screen-input = 0.
       MODIFY SCREEN.
@@ -419,6 +422,9 @@ AT SELECTION-SCREEN ON VALUE-REQUEST FOR so_cp-low.
 
 AT SELECTION-SCREEN ON VALUE-REQUEST FOR so_cp-high.
   PERFORM f4_codepoint USING 'SO_CP-HIGH'.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_grp.
+  PERFORM f4_server_group.
 
 *&---------------------------------------------------------------------*
 *&  F4 value help for the FIELDS select-option: list the columns of
@@ -638,6 +644,7 @@ START-OF-SELECTION.
             iv_pkgs_per_wave = 5
             iv_percentage    = p_pct
             iv_hmax          = p_hmax
+            iv_group         = p_grp
             " reuse the row count the selection screen already computed, so
             " the scan does NOT run a second (expensive) COUNT(*) at start.
             iv_total_est     = gv_cnt_rows ).
@@ -887,6 +894,47 @@ FORM f4_codepoint USING pv_dynprofield TYPE help_info-dynprofld.
       dynpfields = lt_upd
     EXCEPTIONS
       OTHERS     = 0.
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  f4_server_group
+*&      Value help for RFC Server Groups (table RZ12).
+*&---------------------------------------------------------------------*
+FORM f4_server_group.
+  TYPES: BEGIN OF ts_rz12,
+           classname TYPE rz12-classname,
+           appl      TYPE rz12-appl,
+         END OF ts_rz12.
+  DATA lt_groups TYPE TABLE OF ts_rz12.
+
+  SELECT DISTINCT classname, appl
+    FROM rz12
+    INTO TABLE @lt_groups
+    ORDER BY classname.
+
+  IF sy-subrc <> 0 OR lt_groups IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  DATA lt_ret TYPE TABLE OF ddshretval.
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield     = 'CLASSNAME'
+      dynpprog     = sy-repid
+      dynpnr       = sy-dynnr
+      dynprofield  = 'P_GRP'
+      value_org    = 'S'
+      window_title = 'Select RFC Server Group'
+    TABLES
+      value_tab    = lt_groups
+      return_tab   = lt_ret
+    EXCEPTIONS
+      OTHERS       = 0.
+
+  IF sy-subrc = 0 AND lt_ret IS NOT INITIAL.
+    READ TABLE lt_ret ASSIGNING FIELD-SYMBOL(<ret>) INDEX 1.
+    p_grp = <ret>-fieldval.
+  ENDIF.
 ENDFORM.
 
 *&---------------------------------------------------------------------*

@@ -245,77 +245,16 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
 
 
   METHOD check_authority.
-    " Display-level authorization check (VIEW_ACTION 'S' = show). Raises on
-    " missing authority so no rows (and no row count) are returned for a
-    " table the user is not allowed to read.
-    CALL FUNCTION 'VIEW_AUTHORITY_CHECK'
-      EXPORTING
-        view_action                    = 'S'
-        view_name                      = iv_table
-      EXCEPTIONS
-        invalid_action                 = 1
-        no_authority                   = 2
-        no_clientindependent_authority = 3
-        table_not_found                = 4
-        no_linedependent_authority     = 5
-        OTHERS                         = 6.
-    IF sy-subrc <> 0.
-      " table_not_found (4) is a data-definition problem, not an auth one,
-      " but we still refuse the read - the dynamic SELECT would fail anyway.
-      RAISE EXCEPTION TYPE cx_sy_authorization_error.
-    ENDIF.
+    /ctdi/cl_table_metadata=>check_authority( iv_table ).
   ENDMETHOD.
 
 
   METHOD build_projection.
-    DATA lr_full TYPE REF TO cl_abap_structdescr.
-    lr_full ?= cl_abap_typedescr=>describe_by_name( iv_table ).
-
-    DATA(lt_ddic) = lr_full->get_ddic_field_list( ).
-
-    " PROJECTION: with an explicit field list, select only those columns
-    " plus the key fields (key always accompanies, to identify each hit).
-    DATA: lt_sel  TYPE TABLE OF string,
-          lt_comp TYPE cl_abap_structdescr=>component_table.
-
-    IF it_fields IS NOT INITIAL.
-      " key fields first
-      LOOP AT lt_ddic ASSIGNING FIELD-SYMBOL(<ls_k>) WHERE keyflag = abap_true.
-        APPEND <ls_k>-fieldname TO lt_sel.
-        APPEND VALUE #( name = <ls_k>-fieldname
-                        type = CAST cl_abap_datadescr(
-                                 lr_full->get_component_type( <ls_k>-fieldname ) ) )
-               TO lt_comp.
-      ENDLOOP.
-      " then the requested fields (skip duplicates / unknown names)
-      LOOP AT it_fields ASSIGNING FIELD-SYMBOL(<lv_f>).
-        DATA(lv_fn) = CONV abap_compname( to_upper( <lv_f> ) ).
-        IF NOT line_exists( lt_comp[ name = lv_fn ] ).
-          TRY.
-              APPEND VALUE #( name = lv_fn
-                              type = CAST cl_abap_datadescr(
-                                       lr_full->get_component_type( lv_fn ) ) )
-                     TO lt_comp.
-              APPEND lv_fn TO lt_sel.
-            CATCH cx_root.
-              " unknown field name -> ignore
-          ENDTRY.
-        ENDIF.
-      ENDLOOP.
-      er_struct = cl_abap_structdescr=>create( lt_comp ).
-    ELSE.
-      er_struct = lr_full.
-    ENDIF.
-
-    " Column list as ONE comma-separated clause, or '*'.
-    IF lt_sel IS INITIAL.
-      ev_cols = '*'.
-    ELSE.
-      LOOP AT lt_sel ASSIGNING FIELD-SYMBOL(<lv_col>).
-        ev_cols = COND #( WHEN ev_cols IS INITIAL THEN <lv_col>
-                          ELSE |{ ev_cols }, { <lv_col> }| ).
-      ENDLOOP.
-    ENDIF.
+    /ctdi/cl_table_metadata=>build_projection(
+      EXPORTING iv_table  = iv_table
+                it_fields = it_fields
+      IMPORTING ev_cols   = ev_cols
+                er_struct = er_struct ).
   ENDMETHOD.
 
 
@@ -492,88 +431,15 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
 
 
   METHOD get_key_fields.
-    DATA(lt_ddic) = CAST cl_abap_structdescr(
-                      cl_abap_typedescr=>describe_by_name( iv_table ) )->get_ddic_field_list( ).
-    LOOP AT lt_ddic ASSIGNING FIELD-SYMBOL(<df>)
-         WHERE keyflag = abap_true AND datatype <> 'CLNT'.
-      APPEND <df>-fieldname TO rt_keyflds.
-    ENDLOOP.
+    rt_keyflds = /ctdi/cl_table_metadata=>get_key_fields( iv_table ).
   ENDMETHOD.
 
 
   METHOD probe_slices.
-    check_authority( iv_table ).
-
-    DATA(lt_keyflds) = get_key_fields( iv_table ).
-    IF lt_keyflds IS INITIAL.
-      " no usable key - cannot slice; return empty (caller falls back)
-      RETURN.
-    ENDIF.
-
-    " column list = the key fields only (keys-only probe), matching key order
-    DATA lv_cols  TYPE string.
-    DATA lv_order TYPE string.
-    LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf>).
-      lv_cols = COND #( WHEN lv_cols IS INITIAL THEN <kf>
-                        ELSE |{ lv_cols }, { <kf> }| ).
-      lv_order = COND #( WHEN lv_order IS INITIAL THEN |{ <kf> } ASCENDING|
-                         ELSE |{ lv_order }, { <kf> } ASCENDING| ).
-    ENDLOOP.
-
-    " dynamic key-only line type
-    DATA lr_full TYPE REF TO cl_abap_structdescr.
-    lr_full ?= cl_abap_typedescr=>describe_by_name( iv_table ).
-    DATA lt_comp TYPE cl_abap_structdescr=>component_table.
-    LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf2>).
-      APPEND VALUE #( name = <kf2>
-                      type = CAST cl_abap_datadescr( lr_full->get_component_type( <kf2> ) ) )
-             TO lt_comp.
-    ENDLOOP.
-    DATA(lr_tab) = cl_abap_tabledescr=>create( cl_abap_structdescr=>create( lt_comp ) ).
-    DATA lr_pkg TYPE REF TO data.
-    CREATE DATA lr_pkg TYPE HANDLE lr_tab.
-    FIELD-SYMBOLS <lt_pkg> TYPE STANDARD TABLE.
-    ASSIGN lr_pkg->* TO <lt_pkg>.
-
-    DATA lv_after TYPE tt_keyval.   " running "resume after" (prev end key)
-    DATA lv_base  TYPE i.
-    DATA lv_no    TYPE i.
-
-    " keys-only package sweep in non-client key order, buffer bypassed
-    SELECT (lv_cols) FROM (iv_table)
-      INTO TABLE @<lt_pkg>
-      PACKAGE SIZE @iv_slice_size
-      BYPASSING BUFFER
-      WHERE (it_where)
-      ORDER BY (lv_order).
-
-      DATA(lv_rows) = lines( <lt_pkg> ).
-      IF lv_rows = 0.
-        CONTINUE.
-      ENDIF.
-      lv_no = lv_no + 1.
-
-      " end key = last row's key tuple of this package
-      DATA lt_end TYPE tt_keyval.
-      CLEAR lt_end.
-      FIELD-SYMBOLS <last> TYPE any.
-      READ TABLE <lt_pkg> ASSIGNING <last> INDEX lv_rows.
-      DATA lv_end_str TYPE string.
-      LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf3>).
-        ASSIGN COMPONENT <kf3> OF STRUCTURE <last> TO FIELD-SYMBOL(<kv>).
-        lv_end_str = <kv>.
-        APPEND VALUE #( field = <kf3> value = lv_end_str ) TO lt_end.
-      ENDLOOP.
-
-      APPEND VALUE ts_slice( slice_no  = lv_no
-                             after_key = lv_after    " resume strictly after prev end
-                             end_key   = lt_end      " inclusive upper bound
-                             rows      = lv_rows
-                             base_row  = lv_base ) TO rt_slices.
-
-      lv_base  = lv_base + lv_rows.
-      lv_after = lt_end.          " next slice resumes after this slice's end
-    ENDSELECT.
+    rt_slices = /ctdi/cl_key_partitioner=>probe_slices(
+      iv_table      = iv_table
+      it_where      = it_where
+      iv_slice_size = iv_slice_size ).
   ENDMETHOD.
 
 
@@ -651,159 +517,32 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
 
 
   METHOD remote_width.
-    DATA(lt_ddic) = ir_struct->get_ddic_field_list( ).
-    LOOP AT it_fields ASSIGNING FIELD-SYMBOL(<sf>).
-      READ TABLE lt_ddic ASSIGNING FIELD-SYMBOL(<dw>) WITH KEY fieldname = <sf>.
-      IF sy-subrc = 0.
-        rv_width = rv_width + <dw>-leng + 1.   " +1 for the field delimiter
-      ENDIF.
-    ENDLOOP.
+    rv_width = /ctdi/cl_table_metadata=>remote_width(
+      ir_struct = ir_struct
+      it_fields = it_fields ).
   ENDMETHOD.
 
 
   METHOD build_resume_where.
-    " Empty tuple => no resume condition (read from the very start).
-    IF it_after IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Build one OR-term per key component i:
-    "   (k1 = v1 AND ... AND k[i-1] = v[i-1] AND k[i] > v[i])
-    " The disjunction of these terms is exactly "tuple strictly greater
-    " than (v1..vn)" in lexicographic order. Each term fixes the earlier
-    " components to equality and makes component i strictly greater.
-    DATA lt_terms TYPE STANDARD TABLE OF string.
-    DATA lv_i     TYPE i.
-    DATA(lv_n)    = lines( it_after ).
-
-    lv_i = 1.
-    WHILE lv_i <= lv_n.
-      DATA lv_term TYPE string.
-      CLEAR lv_term.
-      " equality on components 1 .. i-1
-      DATA lv_j TYPE i.
-      lv_j = 1.
-      WHILE lv_j < lv_i.
-        DATA(ls_eq) = it_after[ lv_j ].
-        DATA(lv_eq) = |{ ls_eq-field } = { quote_literal( ls_eq-value ) }|.
-        lv_term = COND #( WHEN lv_term IS INITIAL THEN lv_eq
-                          ELSE |{ lv_term } AND { lv_eq }| ).
-        lv_j = lv_j + 1.
-      ENDWHILE.
-      " strict greater-than on component i
-      DATA(ls_gt) = it_after[ lv_i ].
-      DATA(lv_gt) = |{ ls_gt-field } > { quote_literal( ls_gt-value ) }|.
-      lv_term = COND #( WHEN lv_term IS INITIAL THEN lv_gt
-                        ELSE |{ lv_term } AND { lv_gt }| ).
-      APPEND |( { lv_term } )| TO lt_terms.
-      lv_i = lv_i + 1.
-    ENDWHILE.
-
-    " OR the terms together
-    LOOP AT lt_terms ASSIGNING FIELD-SYMBOL(<t>).
-      rv_where = COND #( WHEN rv_where IS INITIAL THEN <t>
-                         ELSE |{ rv_where } OR { <t> }| ).
-    ENDLOOP.
-    rv_where = |( { rv_where } )|.
+    rv_where = /ctdi/cl_key_partitioner=>build_resume_where( it_after ).
   ENDMETHOD.
 
 
   METHOD build_until_where.
-    " Empty tuple => no upper bound.
-    IF it_until IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    " Lexicographic "tuple <= (v1..vn)": one OR-term per component i,
-    "   (k1 = v1 AND ... AND k[i-1] = v[i-1] AND k[i] < v[i])
-    " for i = 1..n-1 (strictly smaller at the first differing component),
-    " plus a final full-equality term (k1 = v1 AND ... AND kn = vn) to make
-    " the bound INCLUSIVE.
-    DATA lt_terms TYPE STANDARD TABLE OF string.
-    DATA(lv_n)    = lines( it_until ).
-    DATA lv_i     TYPE i.
-
-    lv_i = 1.
-    WHILE lv_i <= lv_n.
-      DATA lv_term TYPE string.
-      CLEAR lv_term.
-      DATA lv_j TYPE i.
-      lv_j = 1.
-      WHILE lv_j < lv_i.
-        DATA(ls_eq) = it_until[ lv_j ].
-        DATA(lv_eq) = |{ ls_eq-field } = { quote_literal( ls_eq-value ) }|.
-        lv_term = COND #( WHEN lv_term IS INITIAL THEN lv_eq
-                          ELSE |{ lv_term } AND { lv_eq }| ).
-        lv_j = lv_j + 1.
-      ENDWHILE.
-      DATA(ls_c) = it_until[ lv_i ].
-      " strictly-less on component i (strict for all but ... see below)
-      DATA(lv_c) = |{ ls_c-field } < { quote_literal( ls_c-value ) }|.
-      lv_term = COND #( WHEN lv_term IS INITIAL THEN lv_c
-                        ELSE |{ lv_term } AND { lv_c }| ).
-      APPEND |( { lv_term } )| TO lt_terms.
-      lv_i = lv_i + 1.
-    ENDWHILE.
-
-    " Final inclusive term: full equality on all components (= the end key).
-    CLEAR lv_term.
-    LOOP AT it_until ASSIGNING FIELD-SYMBOL(<e>).
-      DATA(lv_e) = |{ <e>-field } = { quote_literal( <e>-value ) }|.
-      lv_term = COND #( WHEN lv_term IS INITIAL THEN lv_e
-                        ELSE |{ lv_term } AND { lv_e }| ).
-    ENDLOOP.
-    APPEND |( { lv_term } )| TO lt_terms.
-
-    LOOP AT lt_terms ASSIGNING FIELD-SYMBOL(<t>).
-      rv_where = COND #( WHEN rv_where IS INITIAL THEN <t>
-                         ELSE |{ rv_where } OR { <t> }| ).
-    ENDLOOP.
-    rv_where = |( { rv_where } )|.
+    rv_where = /ctdi/cl_key_partitioner=>build_until_where( it_until ).
   ENDMETHOD.
 
 
   METHOD quote_literal.
-    " Render a value as a single-quoted Open SQL character literal, doubling
-    " any embedded single quotes. Used for the dynamic resume WHERE.
-    DATA(lv_v) = iv_value.
-    REPLACE ALL OCCURRENCES OF |'| IN lv_v WITH |''|.
-    rv_lit = |'{ lv_v }'|.
+    rv_lit = /ctdi/cl_key_partitioner=>quote_literal( iv_value ).
   ENDMETHOD.
 
 
   METHOD scan_fields.
-    " Check-table lookup (field -> has check table?) from DDIC metadata,
-    " built only when the skip option is on.
-    DATA lt_check TYPE HASHED TABLE OF fieldname WITH UNIQUE KEY table_line.
-    IF iv_skip_check = abap_true.
-      DATA(lr_tabdescr) = CAST cl_abap_structdescr(
-                            cl_abap_typedescr=>describe_by_name( iv_table ) ).
-      LOOP AT lr_tabdescr->get_ddic_field_list( )
-           ASSIGNING FIELD-SYMBOL(<ls_dd>) WHERE checktable IS NOT INITIAL.
-        INSERT <ls_dd>-fieldname INTO TABLE lt_check.
-      ENDLOOP.
-    ENDIF.
-
-    " Flat walk of the (already projected) structure's components.
-    DATA(lt_comp) = ir_struct->get_components( ).
-    LOOP AT lt_comp ASSIGNING FIELD-SYMBOL(<ls_comp>).
-      " start-column cutoff (1-based position)
-      IF sy-tabix < iv_start_col.
-        CONTINUE.
-      ENDIF.
-      " skip fields that have a check table / foreign key (code fields)
-      IF iv_skip_check = abap_true AND line_exists( lt_check[ table_line = <ls_comp>-name ] ).
-        CONTINUE.
-      ENDIF.
-      " only elementary character-like fields (CHAR / STRING)
-      IF <ls_comp>-type->kind <> cl_abap_typedescr=>kind_elem.
-        CONTINUE.
-      ENDIF.
-      DATA(lr_elem) = CAST cl_abap_elemdescr( <ls_comp>-type ).
-      IF lr_elem->type_kind = cl_abap_typedescr=>typekind_char
-        OR lr_elem->type_kind = cl_abap_typedescr=>typekind_string.
-        APPEND <ls_comp>-name TO rt_fields.
-      ENDIF.
-    ENDLOOP.
+    rt_fields = /ctdi/cl_table_metadata=>scan_fields(
+      ir_struct     = ir_struct
+      iv_table      = iv_table
+      iv_start_col  = iv_start_col
+      iv_skip_check = iv_skip_check ).
   ENDMETHOD.
 ENDCLASS.

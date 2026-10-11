@@ -39,7 +39,8 @@ CLASS ltcl_scanner DEFINITION FINAL FOR TESTING
              " extra_cp parsing (ranges, separators, malformed, out of range)
              extra_cp_range_and_commas    FOR TESTING,
              extra_cp_malformed_ignored   FOR TESTING,
-             scan_table_matches_row_scan  FOR TESTING.
+             scan_table_matches_row_scan  FOR TESTING,
+             rule_interface_inspects      FOR TESTING.
 ENDCLASS.
 
 CLASS ltcl_scanner IMPLEMENTATION.
@@ -342,6 +343,27 @@ CLASS ltcl_scanner IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals(
       exp = lt_row_hits act = lt_table_hits
       msg = 'Index-resolved scan_table must produce identical hits to scan_row' ).
+  ENDMETHOD.
+
+  METHOD rule_interface_inspects.
+    DATA lo_rule TYPE REF TO /ctdi/if_inspection_rule.
+    lo_rule = NEW /ctdi/cl_cntrl_scanner( is_scope = VALUE #( common = abap_true ) ).
+
+    cl_abap_unit_assert=>assert_equals(
+      exp = 'CONTROL_CHARS' act = lo_rule->get_rule_id( ) ).
+
+    DATA lt_data TYPE tt_row.
+    APPEND VALUE #( id = '0001' name1 = 'clean' ) TO lt_data.
+    APPEND VALUE #( id = '0002' name1 = |a{ cl_abap_char_utilities=>newline }b| ) TO lt_data.
+
+    DATA(lt_hits) = lo_rule->inspect_table(
+      it_data   = lt_data
+      it_fields = all_fields( )
+      it_keys   = VALUE #( ( 'ID' ) ) ).
+
+    cl_abap_unit_assert=>assert_equals( exp = 1 act = lines( lt_hits ) ).
+    cl_abap_unit_assert=>assert_equals( exp = 'NAME1' act = lt_hits[ 1 ]-field ).
+    cl_abap_unit_assert=>assert_equals( exp = 'ID=0002' act = lt_hits[ 1 ]-keyinfo ).
   ENDMETHOD.
 
 ENDCLASS.
