@@ -31,10 +31,11 @@ public section.
            END OF ts_packet .
     " Result of a parallel scan run.
     TYPES: BEGIN OF ts_result,
-             hits      TYPE /ctdi/cl_cntrl_scanner=>tt_hit,
-             rows      TYPE i,            " total rows scanned
-             truncated TYPE abap_bool,    " stopped early at the hit ceiling
-             errors    TYPE string_table, " per-task error messages (if any)
+             hits         TYPE /ctdi/cl_cntrl_scanner=>tt_hit,
+             rows         TYPE i,            " total rows scanned
+             truncated    TYPE abap_bool,    " stopped early at the hit ceiling
+             errors       TYPE string_table, " per-task error messages (if any)
+             last_end_key TYPE /ctdi/cl_table_reader=>tt_keyval, " last key reached
            END OF ts_result .
 
     "! Drive a full-table control-char scan in PARALLEL, batched-wave model
@@ -263,6 +264,7 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
         DELETE rs_result-hits FROM iv_hmax + 1.
         rs_result-truncated = abap_true.
       ENDIF.
+      rs_result-last_end_key = lt_last_single.
       RETURN.
     ENDIF.
 
@@ -310,6 +312,9 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
         CONTINUE.
       ENDIF.
       APPEND LINES OF deserialize_hits( <o>-result ) TO rs_result-hits.
+      IF <o>-index <= lines( lt_slices ).
+        rs_result-last_end_key = lt_slices[ <o>-index ]-end_key.
+      ENDIF.
     ENDLOOP.
 
     " Hit ceiling: truncate exactly (all slices already ran - this just caps

@@ -678,6 +678,7 @@ START-OF-SELECTION.
 
     " Scope is needed by both read modes - build it once.
     DATA ls_scope TYPE /ctdi/cl_cntrl_scanner=>ts_scope.
+    DATA lt_last_key TYPE /ctdi/cl_table_reader=>tt_keyval.
     PERFORM build_scope CHANGING ls_scope.
 
     IF p_mful = abap_true AND p_par = abap_true.
@@ -707,6 +708,7 @@ START-OF-SELECTION.
       gt_hits      = ls_pres-hits.
       gv_rows      = ls_pres-rows.
       gv_truncated = ls_pres-truncated.
+      lt_last_key  = ls_pres-last_end_key.
       " surface any per-task errors as a partial-result flag
       IF ls_pres-errors IS NOT INITIAL.
         gv_error = abap_true.
@@ -777,6 +779,7 @@ START-OF-SELECTION.
   /ctdi/cl_scan_checkpoint=>save_checkpoint( VALUE #(
     run_id       = lv_run_id
     tabname      = p_tab
+    last_end_key = lt_last_key
     rows_scanned = gv_rows
     hits_count   = lines( gt_hits )
     status       = COND #( WHEN gv_error = abap_true THEN 'E' ELSE 'C' )
