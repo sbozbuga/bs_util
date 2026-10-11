@@ -159,7 +159,7 @@ CLASS ltcl_parallel IMPLEMENTATION.
         IMPORTING ev_pkgsize = lv_size ev_perwave = lv_wave ).
       cl_abap_unit_assert=>assert_true(
         act = xsdbool( lv_size >= 40000 AND lv_size <= 60000 )
-        msg = |pack size out of band for N={ lv_n }: { lv_size }| ).
+        msg = |pack size out of band for N={ <lv_n> }: { lv_size }| ).
     ENDLOOP.
   ENDMETHOD.
 

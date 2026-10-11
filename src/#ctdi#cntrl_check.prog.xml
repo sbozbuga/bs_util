@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0">
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
@@ -148,6 +148,48 @@
      <KEY>SO_OPT</KEY>
      <ENTRY>WHERE conditions</ENTRY>
      <LENGTH>33</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_GRP</KEY>
+     <ENTRY>RFC Server Group (RZ12)</ENTRY>
+     <LENGTH>31</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_LOG</KEY>
+     <ENTRY>Log run to SLG1 / batch log</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RES</KEY>
+     <ENTRY>Resume from last checkpoint</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RSCAN</KEY>
+     <ENTRY>Scan only</ENTRY>
+     <LENGTH>17</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RSIM</KEY>
+     <ENTRY>Simulate remediation (diffs)</ENTRY>
+     <LENGTH>36</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RFIX</KEY>
+     <ENTRY>Apply remediation (live update)</ENTRY>
+     <LENGTH>39</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RCHR</KEY>
+     <ENTRY>Replacement character</ENTRY>
+     <LENGTH>29</LENGTH>
     </item>
    </TPOOL>
    <LONGTEXTS>

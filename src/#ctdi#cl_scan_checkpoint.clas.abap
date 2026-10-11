@@ -59,7 +59,8 @@ CLASS /ctdi/cl_scan_checkpoint IMPLEMENTATION.
     TRY.
         rv_run_id = cl_system_uuid=>create_uuid_c32_static( ).
       CATCH cx_root.
-        GET TIME STAMP DATA(lv_ts).
+        DATA lv_ts TYPE timestamp.
+        GET TIME STAMP FIELD lv_ts.
         rv_run_id = |{ iv_table }_{ lv_ts }|.
     ENDTRY.
 

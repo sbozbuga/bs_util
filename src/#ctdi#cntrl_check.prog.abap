@@ -147,6 +147,20 @@ SELECTION-SCREEN BEGIN OF BLOCK b5 WITH FRAME TITLE gv_t005.
 SELECT-OPTIONS so_cp FOR gv_cpref.
 SELECTION-SCREEN END OF BLOCK b5.
 
+" OBSERVABILITY & CHECKPOINTS: SLG1 Application Log and interrupted scan resume
+SELECTION-SCREEN BEGIN OF BLOCK b_obs WITH FRAME TITLE gv_tobs.
+PARAMETERS: p_log AS CHECKBOX DEFAULT 'X', " Log execution in SLG1 / batch log
+            p_res AS CHECKBOX.             " Resume from last checkpoint if interrupted
+SELECTION-SCREEN END OF BLOCK b_obs.
+
+" REMEDIATION: Clean control characters (simulation vs live table update)
+SELECTION-SCREEN BEGIN OF BLOCK b_rem WITH FRAME TITLE gv_trem.
+PARAMETERS: p_rscan RADIOBUTTON GROUP rmd DEFAULT 'X' USER-COMMAND rmdsel, " Scan only
+            p_rsim  RADIOBUTTON GROUP rmd,                                  " Simulate remediation (diffs)
+            p_rfix  RADIOBUTTON GROUP rmd.                                  " Apply remediation (live update)
+PARAMETERS: p_rchr  TYPE c LENGTH 1 DEFAULT ' '.                            " Replacement character
+SELECTION-SCREEN END OF BLOCK b_rem.
+
 DATA gt_hits      TYPE /ctdi/cl_cntrl_scanner=>tt_hit.
 DATA gv_rows      TYPE i.
 DATA gv_error     TYPE abap_bool.   " a read/scan error was reported (partial result)
@@ -238,6 +252,8 @@ INITIALIZATION.
   gv_t004 = 'Control-character classes to scan'.
   gv_t005 = 'Explicit code points (hex, e.g. 7F or 80-9F)'.
   gv_tm   = 'Read mode (local path)'.
+  gv_tobs = 'Observability & Checkpointing'.
+  gv_trem = 'Remediation Workflow (Governed Table Cleaning)'.
 
 *&---------------------------------------------------------------------*
 *&  Grey out the start column when an explicit FIELDS list is entered -
@@ -308,7 +324,10 @@ AT SELECTION-SCREEN OUTPUT.
           OR screen-name = 'P_PCT'  OR screen-name = 'P_GRP'
           OR screen-name = 'P_AUTO'
           OR screen-name = 'P_CMN'  OR screen-name = 'P_C0'
-          OR screen-name = 'P_C1'   OR screen-name = 'P_SPC' ).
+          OR screen-name = 'P_C1'   OR screen-name = 'P_SPC'
+          OR screen-name = 'P_RES'  OR screen-name = 'P_RSCAN'
+          OR screen-name = 'P_RSIM' OR screen-name = 'P_RFIX'
+          OR screen-name = 'P_RCHR' ).
       screen-input = 0.
       MODIFY SCREEN.
       CONTINUE.
@@ -343,6 +362,11 @@ AT SELECTION-SCREEN OUTPUT.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
+    " Replacement character only applies when remediating
+    IF screen-name = 'P_RCHR' AND p_rscan = abap_true.
+      screen-input = 0.
+      MODIFY SCREEN.
+    ENDIF.
   ENDLOOP.
 
 *&---------------------------------------------------------------------*
@@ -350,6 +374,10 @@ AT SELECTION-SCREEN OUTPUT.
 *&  code point must be selected - otherwise there is nothing to scan.
 *&---------------------------------------------------------------------*
 AT SELECTION-SCREEN.
+  IF p_rfix = abap_true.
+    MESSAGE 'Caution: Direct remediation mode will update table contents.' TYPE 'W'.
+  ENDIF.
+
   IF p_cmn = abap_false AND p_c0 = abap_false AND p_c1 = abap_false
      AND p_spc = abap_false AND so_cp[] IS INITIAL.
     MESSAGE 'Select at least one control-character class or enter a code point'
@@ -530,11 +558,36 @@ START-OF-SELECTION.
   DATA lr_struct TYPE REF TO cl_abap_structdescr.
   FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
 
+  DATA lo_logger TYPE REF TO /ctdi/cl_scan_logger.
+  DATA lv_run_id TYPE string.
+  IF p_log = abap_true.
+    lo_logger = NEW /ctdi/cl_scan_logger( iv_extnumber = CONV #( p_tab ) ).
+    lo_logger->add_info( |Initiating scan for table { p_tab }| ).
+  ENDIF.
+
   " Collect selection-screen input into plain tables for the reader.
   " OPTIONS: free WHERE fragments.  FIELDS: explicit field names only
   " (patterns like CP cannot map to columns -> treated as "all columns").
   DATA lt_where  TYPE /ctdi/cl_table_reader=>tt_where.
   DATA lt_fields TYPE /ctdi/cl_table_reader=>tt_field.
+
+  IF p_res = abap_true.
+    DATA(ls_ckpt) = /ctdi/cl_scan_checkpoint=>get_latest_for_table( p_tab ).
+    IF ls_ckpt-status = 'R' AND ls_ckpt-last_end_key IS NOT INITIAL.
+      lv_run_id = ls_ckpt-run_id.
+      DATA(lv_res_where) = /ctdi/cl_key_partitioner=>build_resume_where( ls_ckpt-last_end_key ).
+      IF lv_res_where IS NOT INITIAL.
+        APPEND lv_res_where TO lt_where.
+      ENDIF.
+      IF lo_logger IS BOUND.
+        lo_logger->add_info( |Resuming scan run { lv_run_id }| ).
+      ENDIF.
+      MESSAGE |Resuming run { lv_run_id }| TYPE 'S'.
+    ENDIF.
+  ENDIF.
+  IF lv_run_id IS INITIAL.
+    lv_run_id = /ctdi/cl_scan_checkpoint=>create_run( p_tab ).
+  ENDIF.
 
   LOOP AT so_opt ASSIGNING FIELD-SYMBOL(<ls_opt>) WHERE sign = 'I' AND option = 'EQ'.
     APPEND <ls_opt>-low TO lt_where.
@@ -721,6 +774,19 @@ START-OF-SELECTION.
     ENDIF.
   ENDIF.
 
+  /ctdi/cl_scan_checkpoint=>save_checkpoint( VALUE #(
+    run_id       = lv_run_id
+    tabname      = p_tab
+    rows_scanned = gv_rows
+    hits_count   = lines( gt_hits )
+    status       = COND #( WHEN gv_error = abap_true THEN 'E' ELSE 'C' )
+  ) ).
+
+  IF lo_logger IS BOUND.
+    lo_logger->add_info( |Scan finished for { p_tab }: { gv_rows } rows, { lines( gt_hits ) } hits| ).
+    lo_logger->save( ).
+  ENDIF.
+
 END-OF-SELECTION.
   IF gt_hits IS INITIAL.
     " Only claim "clean" when the scan actually completed without error -
@@ -738,6 +804,56 @@ END-OF-SELECTION.
       ENDIF.
     ENDIF.
     RETURN.
+  ENDIF.
+
+  " Governed remediation check
+  IF p_rsim = abap_true OR p_rfix = abap_true.
+    DATA lt_viols TYPE /ctdi/if_inspection_rule=>tt_violation.
+    lt_viols = CORRESPONDING #( gt_hits ).
+
+    IF p_rsim = abap_true.
+      DATA(ls_sim_res) = /ctdi/cl_scan_remediator=>simulate( lt_viols ).
+      PERFORM display_remediation_diffs USING ls_sim_res-diffs.
+      RETURN.
+    ELSEIF p_rfix = abap_true.
+      IF sy-batch = abap_false.
+        DATA lv_ans TYPE c LENGTH 1.
+        CALL FUNCTION 'POPUP_TO_CONFIRM'
+          EXPORTING
+            titlebar              = 'Confirm Table Remediation'
+            text_question         = |Do you want to update records with control characters in { p_tab }?|
+            text_button_1         = 'Yes'
+            text_button_2         = 'No'
+            default_button        = '2'
+            display_cancel_button = 'X'
+          IMPORTING
+            answer                = lv_ans
+          EXCEPTIONS
+            OTHERS                = 0.
+        IF lv_ans <> '1'.
+          MESSAGE 'Remediation cancelled by user' TYPE 'S'.
+          RETURN.
+        ENDIF.
+      ENDIF.
+
+      DATA(ls_fix_res) = /ctdi/cl_scan_remediator=>execute(
+        iv_table      = p_tab
+        it_hits       = lt_viols
+        iv_simulation = abap_false
+        io_logger     = lo_logger ).
+      IF ls_fix_res-success = abap_true.
+        IF lo_logger IS BOUND.
+          lo_logger->save( ).
+        ENDIF.
+        MESSAGE |Remediation complete: { ls_fix_res-changed } records updated in { p_tab }| TYPE 'S'.
+      ELSE.
+        IF lo_logger IS BOUND.
+          lo_logger->save( ).
+        ENDIF.
+        MESSAGE |Remediation error on { p_tab }: { ls_fix_res-message }| TYPE 'E'.
+      ENDIF.
+      RETURN.
+    ENDIF.
   ENDIF.
 
   " Make a partial / truncated result visible rather than silently showing
@@ -1002,6 +1118,57 @@ FORM display_salv.
     CATCH cx_salv_msg
           cx_salv_not_found INTO DATA(lx_salv).
       MESSAGE lx_salv->get_text( ) TYPE 'S' DISPLAY LIKE 'E'.
+  ENDTRY.
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  display_remediation_diffs
+*&      Displays remediation simulation diffs in a SALV grid.
+*&---------------------------------------------------------------------*
+FORM display_remediation_diffs USING it_diff TYPE /ctdi/cl_scan_remediator=>tt_diff.
+  TYPES: BEGIN OF ts_disp_diff,
+           rownum    TYPE i,
+           keyinfo   TYPE c LENGTH 100,
+           field     TYPE c LENGTH 40,
+           old_value TYPE c LENGTH 132,
+           new_value TYPE c LENGTH 132,
+           changed   TYPE c LENGTH 1,
+         END OF ts_disp_diff.
+  DATA lt_disp_diff TYPE STANDARD TABLE OF ts_disp_diff WITH EMPTY KEY.
+
+  LOOP AT it_diff ASSIGNING FIELD-SYMBOL(<ls_d>).
+    APPEND VALUE #(
+      rownum    = <ls_d>-rownum
+      keyinfo   = <ls_d>-keyinfo
+      field     = <ls_d>-field
+      old_value = <ls_d>-old_value
+      new_value = <ls_d>-new_value
+      changed   = <ls_d>-changed ) TO lt_disp_diff.
+  ENDLOOP.
+
+  DATA lo_salv TYPE REF TO cl_salv_table.
+  TRY.
+      cl_salv_table=>factory( IMPORTING r_salv_table = lo_salv
+                              CHANGING  t_table      = lt_disp_diff ).
+
+      DATA(lo_cols) = lo_salv->get_columns( ).
+      lo_cols->set_optimize( COND #( WHEN lines( lt_disp_diff ) <= 2000
+                                     THEN abap_true ELSE abap_false ) ).
+      lo_cols->get_column( 'ROWNUM'    )->set_short_text( 'Row' ).
+      lo_cols->get_column( 'KEYINFO'   )->set_short_text( 'Key' ).
+      lo_cols->get_column( 'FIELD'     )->set_short_text( 'Field' ).
+      lo_cols->get_column( 'OLD_VALUE' )->set_medium_text( 'Original Value' ).
+      lo_cols->get_column( 'NEW_VALUE' )->set_medium_text( 'Cleaned Value' ).
+      lo_cols->get_column( 'CHANGED'   )->set_short_text( 'Changed' ).
+
+      lo_salv->get_functions( )->set_all( abap_true ).
+      lo_salv->get_display_settings( )->set_list_header(
+        |Remediation Simulation: { lines( lt_disp_diff ) } fields to clean in { p_tab }| ).
+
+      lo_salv->display( ).
+    CATCH cx_salv_msg
+          cx_salv_not_found INTO DATA(lx_salv_diff).
+      MESSAGE lx_salv_diff->get_text( ) TYPE 'S' DISPLAY LIKE 'E'.
   ENDTRY.
 ENDFORM.
 
