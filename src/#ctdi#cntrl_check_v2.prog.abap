@@ -560,10 +560,10 @@ END-OF-SELECTION.
 *&---------------------------------------------------------------------*
 CLASS lcl_report_handler IMPLEMENTATION.
   METHOD initialization.
-    gv_tdata = '1. Target Dataset & Selection Criteria'.
-    gv_teng  = '2. Execution Engine & Sizing (Local Path)'.
-    gv_trule = '3. Inspection Rules & Defect Scope'.
-    gv_tact  = '4. Remediation Workflow & Governance'.
+    gv_tdata = '1. Target Dataset & Selection Criteria'(001).
+    gv_teng  = '2. Execution Engine & Sizing (Local Path)'(002).
+    gv_trule = '3. Inspection Rules & Defect Scope'(003).
+    gv_tact  = '4. Remediation Workflow & Governance'(004).
   ENDMETHOD.
 
   METHOD on_selection_screen_output.

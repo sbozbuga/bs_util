@@ -249,11 +249,11 @@ CLASS lcl_scan_sink IMPLEMENTATION.
 ENDCLASS.
 
 INITIALIZATION.
-  gv_t004 = 'Control-character classes to scan'.
-  gv_t005 = 'Explicit code points (hex, e.g. 7F or 80-9F)'.
-  gv_tm   = 'Read mode (local path)'.
-  gv_tobs = 'Observability & Checkpointing'.
-  gv_trem = 'Remediation Workflow (Governed Table Cleaning)'.
+  gv_t004 = 'Control-character classes to scan'(004).
+  gv_t005 = 'Explicit code points (hex, e.g. 7F or 80-9F)'(005).
+  gv_tm   = 'Read mode (local path)'(006).
+  gv_tobs = 'Observability & Checkpointing'(007).
+  gv_trem = 'Remediation Workflow (Governed Table Cleaning)'(008).
 
 *&---------------------------------------------------------------------*
 *&  Grey out the start column when an explicit FIELDS list is entered -
