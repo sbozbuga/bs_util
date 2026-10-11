@@ -76,7 +76,9 @@ graph TD
 
 ### Orchestration & Presentation
 - [`/CTDI/CNTRL_CHECK`](src/%23ctdi%23cntrl_check.prog.abap) (Report): Main orchestration driver, selection screen, and SALV results presenter.
+- [`/CTDI/CNTRL_CHECK_V2`](src/%23ctdi%23cntrl_check_v2.prog.abap) (Report): Modernized 4-zone selection screen variant with ergonomic UX layout.
 - [`/CTDI/CNTRL_CHECK.PROG.XML`](src/%23ctdi%23cntrl_check.prog.xml): Text pool, parameter texts, and abapGit DDIC metadata.
+
 
 ### Core Architecture & Strategy Pattern
 - [`/CTDI/IF_SCAN_ENGINE`](src/%23ctdi%23if_scan_engine.intf.abap): Common engine contract for table inspection.
