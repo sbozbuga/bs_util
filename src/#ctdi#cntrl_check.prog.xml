@@ -30,6 +30,36 @@
      <LENGTH>24</LENGTH>
     </item>
     <item>
+     <ID>I</ID>
+     <KEY>004</KEY>
+     <ENTRY>Control-character classes to scan</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>I</ID>
+     <KEY>005</KEY>
+     <ENTRY>Explicit code points (hex, e.g. 7F or 80-9F)</ENTRY>
+     <LENGTH>45</LENGTH>
+    </item>
+    <item>
+     <ID>I</ID>
+     <KEY>006</KEY>
+     <ENTRY>Read mode (local path)</ENTRY>
+     <LENGTH>30</LENGTH>
+    </item>
+    <item>
+     <ID>I</ID>
+     <KEY>007</KEY>
+     <ENTRY>Observability &amp; Checkpointing</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>I</ID>
+     <KEY>008</KEY>
+     <ENTRY>Remediation Workflow (Governed Table Cleaning)</ENTRY>
+     <LENGTH>48</LENGTH>
+    </item>
+    <item>
      <ID>R</ID>
      <ENTRY>Scan table char fields for control characters</ENTRY>
      <LENGTH>45</LENGTH>
@@ -39,6 +69,12 @@
      <KEY>P_ALV</KEY>
      <ENTRY>Display as ALV grid</ENTRY>
      <LENGTH>27</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_AUTO</KEY>
+     <ENTRY>Auto package sizing (parallel)</ENTRY>
+     <LENGTH>35</LENGTH>
     </item>
     <item>
      <ID>S</ID>
@@ -66,8 +102,20 @@
     </item>
     <item>
      <ID>S</ID>
+     <KEY>P_GRP</KEY>
+     <ENTRY>RFC Server Group (RZ12)</ENTRY>
+     <LENGTH>31</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
      <KEY>P_HMAX</KEY>
      <ENTRY>stop after N hits (0 = all)</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_LOG</KEY>
+     <ENTRY>Log run to SLG1 / batch log</ENTRY>
      <LENGTH>35</LENGTH>
     </item>
     <item>
@@ -96,15 +144,57 @@
     </item>
     <item>
      <ID>S</ID>
+     <KEY>P_PAR</KEY>
+     <ENTRY>Parallel scan (Full)</ENTRY>
+     <LENGTH>28</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_PCT</KEY>
+     <ENTRY>% of dialog WPs (parallel)</ENTRY>
+     <LENGTH>32</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
      <KEY>P_PKG</KEY>
      <ENTRY>Package</ENTRY>
      <LENGTH>15</LENGTH>
     </item>
     <item>
      <ID>S</ID>
+     <KEY>P_RCHR</KEY>
+     <ENTRY>Replacement character</ENTRY>
+     <LENGTH>29</LENGTH>
+     </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RES</KEY>
+     <ENTRY>Resume from last checkpoint</ENTRY>
+     <LENGTH>35</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
      <KEY>P_RFC</KEY>
      <ENTRY>RFC</ENTRY>
      <LENGTH>11</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RFIX</KEY>
+     <ENTRY>Apply remediation (live update)</ENTRY>
+     <LENGTH>39</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RSCAN</KEY>
+     <ENTRY>Scan only</ENTRY>
+     <LENGTH>17</LENGTH>
+    </item>
+    <item>
+     <ID>S</ID>
+     <KEY>P_RSIM</KEY>
+     <ENTRY>Simulate remediation (diffs)</ENTRY>
+     <LENGTH>36</LENGTH>
     </item>
     <item>
      <ID>S</ID>
@@ -149,49 +239,241 @@
      <ENTRY>WHERE conditions</ENTRY>
      <LENGTH>33</LENGTH>
     </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_GRP</KEY>
-     <ENTRY>RFC Server Group (RZ12)</ENTRY>
-     <LENGTH>31</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_LOG</KEY>
-     <ENTRY>Log run to SLG1 / batch log</ENTRY>
-     <LENGTH>35</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_RES</KEY>
-     <ENTRY>Resume from last checkpoint</ENTRY>
-     <LENGTH>35</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_RSCAN</KEY>
-     <ENTRY>Scan only</ENTRY>
-     <LENGTH>17</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_RSIM</KEY>
-     <ENTRY>Simulate remediation (diffs)</ENTRY>
-     <LENGTH>36</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_RFIX</KEY>
-     <ENTRY>Apply remediation (live update)</ENTRY>
-     <LENGTH>39</LENGTH>
-    </item>
-    <item>
-     <ID>S</ID>
-     <KEY>P_RCHR</KEY>
-     <ENTRY>Replacement character</ENTRY>
-     <LENGTH>29</LENGTH>
-    </item>
    </TPOOL>
+   <I18N_TPOOL>
+    <item>
+     <LANGUAGE>D</LANGUAGE>
+     <TEXTPOOL>
+      <item>
+       <ID>I</ID>
+       <KEY>001</KEY>
+       <ENTRY>Tabellen- und Scan-Optionen</ENTRY>
+       <LENGTH>44</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>002</KEY>
+       <ENTRY>WHERE-Bedingungen (wie RFC_READ_TABLE)</ENTRY>
+       <LENGTH>76</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>003</KEY>
+       <ENTRY>Zu prüfende Felder</ENTRY>
+       <LENGTH>24</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>004</KEY>
+       <ENTRY>Zu prüfende Steuerzeichenklassen</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>005</KEY>
+       <ENTRY>Explizite Codepunkte (Hex, z.B. 7F, 80-9F)</ENTRY>
+       <LENGTH>45</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>006</KEY>
+       <ENTRY>Lesemodus (lokaler Pfad)</ENTRY>
+       <LENGTH>30</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>007</KEY>
+       <ENTRY>Beobachtbarkeit &amp; Prüfpunkte</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>I</ID>
+       <KEY>008</KEY>
+       <ENTRY>Bereinigung &amp; Tabellenaktualisierung</ENTRY>
+       <LENGTH>48</LENGTH>
+      </item>
+      <item>
+       <ID>R</ID>
+       <ENTRY>Tabellen-Zeichenfelder auf Steuerzeichen prüfen</ENTRY>
+       <LENGTH>47</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_ALV</KEY>
+       <ENTRY>Ausgabe als ALV-Grid</ENTRY>
+       <LENGTH>27</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_AUTO</KEY>
+       <ENTRY>Automatische Paketgröße (parallel)</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_C0</KEY>
+       <ENTRY>Weitere C0-Steuerzeichen (0x00-0x1F)</ENTRY>
+       <LENGTH>37</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_C1</KEY>
+       <ENTRY>C1-Steuerzeichen (0x80-0x9F)</ENTRY>
+       <LENGTH>29</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_CMN</KEY>
+       <ENTRY>Zeilenumbrüche &amp; Tab (LF/CR/TAB)</ENTRY>
+       <LENGTH>37</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_COLS</KEY>
+       <ENTRY>Startspalte (Position)</ENTRY>
+       <LENGTH>31</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_GRP</KEY>
+       <ENTRY>RFC-Servergruppe (RZ12)</ENTRY>
+       <LENGTH>31</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_HMAX</KEY>
+       <ENTRY>Stopp nach N Treffern (0 = alle)</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_LOG</KEY>
+       <ENTRY>Lauf in SLG1 / Jobprotokoll loggen</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_MAX</KEY>
+       <ENTRY>Max. Zeilen (Blockgröße)</ENTRY>
+       <LENGTH>29</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_MFST</KEY>
+       <ENTRY>Erster Block</ENTRY>
+       <LENGTH>19</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_MFUL</KEY>
+       <ENTRY>Gesamte Tabelle (Streaming)</ENTRY>
+       <LENGTH>27</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_MLST</KEY>
+       <ENTRY>Letzter Block (nach Primärschlüssel)</ENTRY>
+       <LENGTH>36</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_PAR</KEY>
+       <ENTRY>Parallele Prüfung (Streaming)</ENTRY>
+       <LENGTH>29</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_PCT</KEY>
+       <ENTRY>% der Dialog-Workprozesse</ENTRY>
+       <LENGTH>34</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_PKG</KEY>
+       <ENTRY>Paketgröße (Streaming)</ENTRY>
+       <LENGTH>25</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RCHR</KEY>
+       <ENTRY>Ersatzzeichen</ENTRY>
+       <LENGTH>29</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RES</KEY>
+       <ENTRY>Ab letztem Checkpoint fortsetzen</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RFC</KEY>
+       <ENTRY>RFC-Destination (leer = lokal)</ENTRY>
+       <LENGTH>38</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RFIX</KEY>
+       <ENTRY>Bereinigung durchführen (Update)</ENTRY>
+       <LENGTH>39</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RSCAN</KEY>
+       <ENTRY>Nur prüfen (Scan)</ENTRY>
+       <LENGTH>17</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_RSIM</KEY>
+       <ENTRY>Bereinigung simulieren (Diffs)</ENTRY>
+       <LENGTH>36</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_SCHK</KEY>
+       <ENTRY>Felder mit Prüftabelle überspringen</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_SKIP</KEY>
+       <ENTRY>Zu überspringende Zeilen (Offset)</ENTRY>
+       <LENGTH>33</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_SPC</KEY>
+       <ENTRY>Sonderzeichen (NBSP / Zero-Width)</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>P_TAB</KEY>
+       <ENTRY>.</ENTRY>
+       <LENGTH>9</LENGTH>
+       <SPLIT>D</SPLIT>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>SO_CP</KEY>
+       <ENTRY>Codepunkte z.B. 0A, 7F, 80-9F</ENTRY>
+       <LENGTH>35</LENGTH>
+      </item>
+      <item>
+       <ID>S</ID>
+       <KEY>SO_FLD</KEY>
+       <ENTRY>Zu prüfende Felder</ENTRY>
+       <LENGTH>22</LENGTH>
+      </item>
+      <item>
+       <ID>SO_OPT</ID>
+       <ENTRY>WHERE-Bedingungen</ENTRY>
+       <LENGTH>33</LENGTH>
+      </item>
+     </TEXTPOOL>
+    </item>
+   </I18N_TPOOL>
    <LONGTEXTS>
     <item>
      <DOKIL>
