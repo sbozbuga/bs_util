@@ -53,26 +53,26 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    Start([User / Batch Execution]) --> CheckParam{p_res = 'X'?}
+    Start([User / Batch Execution]) --> CheckParam{"p_res = 'X'?"}
     
-    CheckParam -->|No - Fresh Run| CreateRun[Call create_run: Generate UUID & Mark status = 'R']
-    CheckParam -->|Yes - Resume Mode| ReadLatest[Query get_latest_for_table on INDX]
+    CheckParam -->|No - Fresh Run| CreateRun["Call create_run: Generate UUID & Mark status = 'R'"]
+    CheckParam -->|Yes - Resume Mode| ReadLatest["Query get_latest_for_table on INDX"]
     
-    ReadLatest --> CheckStatus{Checkpoint Found & status IN ('R','E')?}
+    ReadLatest --> CheckStatus{"Checkpoint Found & Status in (R, E)?"}
     CheckStatus -->|No Checkpoint| CreateRun
-    CheckStatus -->|Valid Checkpoint| HasKey{last_end_key Present?}
+    CheckStatus -->|Valid Checkpoint| HasKey{"last_end_key Present?"}
     
     HasKey -->|No| CreateRun
-    HasKey -->|Yes| BuildWhere[Call /CTDI/CL_KEY_PARTITIONER=>build_resume_where]
+    HasKey -->|Yes| BuildWhere["Call /CTDI/CL_KEY_PARTITIONER=>build_resume_where"]
     
-    BuildWhere --> InjectWhere[Append boundary predicate to lt_where:<br>Single Key: VBELN > '0015000000'<br>Composite: KUNNR > '1000' OR (KUNNR = '1000' AND VKORG > '01')]
+    BuildWhere --> InjectWhere["Append boundary predicate to lt_where:<br>Single Key: VBELN > '0015000000'<br>Composite: KUNNR > '1000' OR (KUNNR = '1000' AND VKORG > '01')"]
     
     CreateRun --> ExecScan
-    InjectWhere --> ExecScan[Execute Scan via Strategy Engine]
+    InjectWhere --> ExecScan["Execute Scan via Strategy Engine"]
     
-    ExecScan --> ScanResult{Scan Status}
-    ScanResult -->|Interrupted / Timeout| SaveError[save_checkpoint: status = 'E', last_end_key = highest slice key]
-    ScanResult -->|Completed Cleanly| SaveComplete[save_checkpoint: status = 'C', last_end_key = final key]
+    ExecScan --> ScanResult{"Scan Status"}
+    ScanResult -->|Interrupted / Timeout| SaveError["save_checkpoint: status = 'E', last_end_key = highest slice key"]
+    ScanResult -->|Completed Cleanly| SaveComplete["save_checkpoint: status = 'C', last_end_key = final key"]
     
     SaveError --> Finish([Interrupted State Preserved in INDX])
     SaveComplete --> FinishClean([Run Finalized in INDX])

@@ -19,22 +19,22 @@ This document details the comprehensive architectural modernization and hardenin
 
 ```mermaid
 graph TD
-    UI[Report: /CTDI/CNTRL_CHECK] --> Factory[/CTDI/CL_SCAN_ENGINE_FACTORY]
-    UI --> Logger[/CTDI/CL_SCAN_LOGGER - SLG1]
-    UI --> Ckpt[/CTDI/CL_SCAN_CHECKPOINT - INDX]
-    UI --> Remediator[/CTDI/CL_SCAN_REMEDIATOR]
+    UI["Report: /CTDI/CNTRL_CHECK"] --> Factory["/CTDI/CL_SCAN_ENGINE_FACTORY"]
+    UI --> Logger["/CTDI/CL_SCAN_LOGGER - SLG1"]
+    UI --> Ckpt["/CTDI/CL_SCAN_CHECKPOINT - INDX"]
+    UI --> Remediator["/CTDI/CL_SCAN_REMEDIATOR"]
     
-    Factory -->|sy-dbsys = AnyDB| UnivEngine[/CTDI/CL_SCAN_ENGINE_UNIV]
-    Factory -->|sy-dbsys = HDB| HanaEngine[/CTDI/CL_SCAN_ENGINE_HANA]
+    Factory -->|sy-dbsys = AnyDB| UnivEngine["/CTDI/CL_SCAN_ENGINE_UNIV"]
+    Factory -->|sy-dbsys = HDB| HanaEngine["/CTDI/CL_SCAN_ENGINE_HANA"]
     HanaEngine -.->|Fallback on error| UnivEngine
     
-    UnivEngine --> Partitioner[/CTDI/CL_KEY_PARTITIONER]
-    UnivEngine --> Meta[/CTDI/CL_TABLE_METADATA]
-    UnivEngine --> WorkerDriver[/CTDI/CL_SCAN_PARALLEL]
+    UnivEngine --> Partitioner["/CTDI/CL_KEY_PARTITIONER"]
+    UnivEngine --> Meta["/CTDI/CL_TABLE_METADATA"]
+    UnivEngine --> WorkerDriver["/CTDI/CL_SCAN_PARALLEL"]
     
-    WorkerDriver -->|Binary Cluster Buffer| Workers[Parallel DIA Tasks]
-    Workers --> Scanner[/CTDI/CL_CNTRL_SCANNER]
-    Scanner -.->|Implements| RuleIntf[/CTDI/IF_INSPECTION_RULE]
+    WorkerDriver -->|Binary Cluster Buffer| Workers["Parallel DIA Tasks"]
+    Workers --> Scanner["/CTDI/CL_CNTRL_SCANNER"]
+    Scanner -.->|Implements| RuleIntf["/CTDI/IF_INSPECTION_RULE"]
 ```
 
 ---

@@ -12,36 +12,36 @@ The architecture leverages the **Strategy Pattern** for database adaptability, t
 classDiagram
     direction TB
 
-    class /CTDI/IF_SCAN_ENGINE {
+    class IF_SCAN_ENGINE["/CTDI/IF_SCAN_ENGINE"] {
         <<interface>>
-        +execute(is_params: ts_scan_params, ii_rule: /CTDI/IF_INSPECTION_RULE) ts_result
+        +execute(is_params, ii_rule) ts_result
     }
 
-    class /CTDI/CL_SCAN_ENGINE_FACTORY {
-        +get_engine(iv_force_univ: abap_bool) /CTDI/IF_SCAN_ENGINE$
+    class CL_SCAN_ENGINE_FACTORY["/CTDI/CL_SCAN_ENGINE_FACTORY"] {
+        +get_engine(iv_force_univ) IF_SCAN_ENGINE$
     }
 
-    class /CTDI/CL_SCAN_ENGINE_UNIV {
-        +execute(is_params: ts_scan_params, ii_rule: /CTDI/IF_INSPECTION_RULE) ts_result
+    class CL_SCAN_ENGINE_UNIV["/CTDI/CL_SCAN_ENGINE_UNIV"] {
+        +execute(is_params, ii_rule) ts_result
     }
 
-    class /CTDI/CL_SCAN_ENGINE_HANA {
-        +execute(is_params: ts_scan_params, ii_rule: /CTDI/IF_INSPECTION_RULE) ts_result
+    class CL_SCAN_ENGINE_HANA["/CTDI/CL_SCAN_ENGINE_HANA"] {
+        +execute(is_params, ii_rule) ts_result
     }
 
-    /CTDI/IF_SCAN_ENGINE <|.. /CTDI/CL_SCAN_ENGINE_UNIV : Realizes
-    /CTDI/IF_SCAN_ENGINE <|.. /CTDI/CL_SCAN_ENGINE_HANA : Realizes
-    /CTDI/CL_SCAN_ENGINE_FACTORY ..> /CTDI/IF_SCAN_ENGINE : Creates
+    IF_SCAN_ENGINE <|.. CL_SCAN_ENGINE_UNIV : Realizes
+    IF_SCAN_ENGINE <|.. CL_SCAN_ENGINE_HANA : Realizes
+    CL_SCAN_ENGINE_FACTORY ..> IF_SCAN_ENGINE : Creates
 
-    class /CTDI/IF_INSPECTION_RULE {
+    class IF_INSPECTION_RULE["/CTDI/IF_INSPECTION_RULE"] {
         <<interface>>
         +get_rule_id() string
-        +inspect_row(is_data: any, it_fields: tt_field, it_keys: tt_field) tt_violation
-        +inspect_table(it_data: any_table, it_fields: tt_field, it_keys: tt_field) tt_violation
-        +get_db_filter(it_fields: tt_field) string
+        +inspect_row(is_data, it_fields, it_keys) tt_violation
+        +inspect_table(it_data, it_fields, it_keys) tt_violation
+        +get_db_filter(it_fields) string
     }
 
-    class /CTDI/CL_CNTRL_SCANNER {
+    class CL_CNTRL_SCANNER["/CTDI/CL_CNTRL_SCANNER"] {
         +scan_table(it_data, it_fields, it_keys, is_scope) tt_hit$
         +scan_pairs(it_pairs, is_scope) tt_hit$
         +sanitize(iv_val: string) string$
@@ -50,23 +50,23 @@ classDiagram
         +get_db_filter(it_fields) string
     }
 
-    /CTDI/IF_INSPECTION_RULE <|.. /CTDI/CL_CNTRL_SCANNER : Realizes
+    IF_INSPECTION_RULE <|.. CL_CNTRL_SCANNER : Realizes
 
-    class /CTDI/CL_TABLE_METADATA {
+    class CL_TABLE_METADATA["/CTDI/CL_TABLE_METADATA"] {
         +scan_fields(ir_struct, iv_table, iv_start_col, iv_skip_check) tt_field
         +key_fields(ir_struct) tt_field
         +remote_width(ir_struct, it_fields) i
     }
 
-    class /CTDI/CL_KEY_PARTITIONER {
-        +build_resume_where(is_after: tt_keyval) string$
-        +build_until_where(is_before: tt_keyval) string$
+    class CL_KEY_PARTITIONER["/CTDI/CL_KEY_PARTITIONER"] {
+        +build_resume_where(is_after) string$
+        +build_until_where(is_before) string$
         +probe_slices(iv_table, it_keyflds, iv_slices) tt_slice$
     }
 
-    class /CTDI/CL_TABLE_READER {
-        -mo_metadata: /CTDI/CL_TABLE_METADATA
-        -mo_partitioner: /CTDI/CL_KEY_PARTITIONER
+    class CL_TABLE_READER["/CTDI/CL_TABLE_READER"] {
+        -mo_metadata: CL_TABLE_METADATA
+        -mo_partitioner: CL_KEY_PARTITIONER
         +read(iv_table, iv_max, iv_skip, iv_last, it_where, it_fields)
         +read_in_packages(iv_table, it_where, it_fields, ii_sink, iv_pkg_size)
         +read_remote(iv_dest, iv_table, it_fields, it_keys, it_where)
@@ -74,10 +74,10 @@ classDiagram
         +probe_slices(iv_table, it_keyflds, iv_slices) tt_slice
     }
 
-    /CTDI/CL_TABLE_READER *-- /CTDI/CL_TABLE_METADATA : Delegates
-    /CTDI/CL_TABLE_READER *-- /CTDI/CL_KEY_PARTITIONER : Delegates
+    CL_TABLE_READER *-- CL_TABLE_METADATA : Delegates
+    CL_TABLE_READER *-- CL_KEY_PARTITIONER : Delegates
 
-    class /CTDI/CL_SCAN_LOGGER {
+    class CL_SCAN_LOGGER["/CTDI/CL_SCAN_LOGGER"] {
         -mv_log_handle: balloghndl
         +constructor(iv_object, iv_subobject, iv_extnumber)
         +add_info(iv_text)
@@ -86,28 +86,28 @@ classDiagram
         +save() abap_bool
     }
 
-    class /CTDI/CL_SCAN_CHECKPOINT {
+    class CL_SCAN_CHECKPOINT["/CTDI/CL_SCAN_CHECKPOINT"] {
         +create_run(iv_table) sysuuid_c32$
-        +save_checkpoint(is_checkpoint: ts_checkpoint)$
+        +save_checkpoint(is_checkpoint)$
         +get_latest_for_table(iv_table) ts_checkpoint$
         +clear_checkpoint(iv_run_id)$
     }
 
-    class /CTDI/CL_SCAN_REMEDIATOR {
-        +simulate(it_hits: tt_violation) ts_remedy_result$
+    class CL_SCAN_REMEDIATOR["/CTDI/CL_SCAN_REMEDIATOR"] {
+        +simulate(it_hits) ts_remedy_result$
         +execute(iv_table, it_hits, iv_simulation, io_logger) ts_remedy_result$
     }
 
-    class /CTDI/CL_SCAN_PARALLEL {
+    class CL_SCAN_PARALLEL["/CTDI/CL_SCAN_PARALLEL"] {
         +run_parallel_scan(iv_table, it_scanflds, it_keys, it_where, iv_pkg_size, iv_percentage, iv_group) ts_result$
         +calc_width(iv_percentage, iv_group) i$
         +serialize_packet(is_packet) xstring$
         +deserialize_hits(iv_raw) tt_hit$
     }
 
-    /CTDI/CL_SCAN_ENGINE_UNIV --> /CTDI/CL_SCAN_PARALLEL : Drives
-    /CTDI/CL_SCAN_ENGINE_UNIV --> /CTDI/CL_KEY_PARTITIONER : Partitions
-    /CTDI/CL_SCAN_ENGINE_HANA --> /CTDI/CL_SCAN_ENGINE_UNIV : Fallback
+    CL_SCAN_ENGINE_UNIV --> CL_SCAN_PARALLEL : Drives
+    CL_SCAN_ENGINE_UNIV --> CL_KEY_PARTITIONER : Partitions
+    CL_SCAN_ENGINE_HANA --> CL_SCAN_ENGINE_UNIV : Fallback
 ```
 
 ---
@@ -120,14 +120,14 @@ This diagram illustrates the lifecycle of a scan request initiated by a user or 
 sequenceDiagram
     autonumber
     actor User as User / Batch Job
-    participant UI as /CTDI/CNTRL_CHECK
-    participant Log as /CTDI/CL_SCAN_LOGGER
-    participant Ckpt as /CTDI/CL_SCAN_CHECKPOINT
-    participant Factory as /CTDI/CL_SCAN_ENGINE_FACTORY
-    participant Engine as /CTDI/IF_SCAN_ENGINE (Univ/HANA)
-    participant Driver as /CTDI/CL_SCAN_PARALLEL
-    participant Worker as Parallel DIA Tasks (RFC)
-    participant Rem as /CTDI/CL_SCAN_REMEDIATOR
+    participant UI as "/CTDI/CNTRL_CHECK"
+    participant Log as "/CTDI/CL_SCAN_LOGGER"
+    participant Ckpt as "/CTDI/CL_SCAN_CHECKPOINT"
+    participant Factory as "/CTDI/CL_SCAN_ENGINE_FACTORY"
+    participant Engine as "/CTDI/IF_SCAN_ENGINE (Univ/HANA)"
+    participant Driver as "/CTDI/CL_SCAN_PARALLEL"
+    participant Worker as "Parallel DIA Tasks (RFC)"
+    participant Rem as "/CTDI/CL_SCAN_REMEDIATOR"
 
     User->>UI: Execute (p_tab, p_par, p_log, p_res, p_rscan/p_rsim/p_rfix)
     
@@ -204,49 +204,49 @@ sequenceDiagram
 flowchart TD
     Start([User / Batch Run]) --> CheckRFC{RFC or Local?}
     
-    CheckRFC -->|Remote RFC| ExecRFC[Classic RFC_READ_TABLE Read]
-    CheckRFC -->|Local| InitLog[Initialize /CTDI/CL_SCAN_LOGGER]
+    CheckRFC -->|Remote RFC| ExecRFC["Classic RFC_READ_TABLE Read"]
+    CheckRFC -->|Local| InitLog["Initialize /CTDI/CL_SCAN_LOGGER"]
 
     InitLog --> CheckResume{p_res = 'X'?}
-    CheckResume -->|Yes| FetchCkpt[Query /CTDI/CL_SCAN_CHECKPOINT]
+    CheckResume -->|Yes| FetchCkpt["Query /CTDI/CL_SCAN_CHECKPOINT"]
     FetchCkpt --> HasCkpt{Checkpoint Active?}
-    HasCkpt -->|Yes| InjectResume[Inject Key Resume Predicate into WHERE]
-    HasCkpt -->|No| InitRun[Create New Run ID]
+    HasCkpt -->|Yes| InjectResume["Inject Key Resume Predicate into WHERE"]
+    HasCkpt -->|No| InitRun["Create New Run ID"]
     CheckResume -->|No| InitRun
     InjectResume --> ResolveEngine
 
-    InitRun --> ResolveEngine[Call /CTDI/CL_SCAN_ENGINE_FACTORY]
+    InitRun --> ResolveEngine["Call /CTDI/CL_SCAN_ENGINE_FACTORY"]
     ResolveEngine --> CheckHDB{sy-dbsys = 'HDB'?}
     
-    CheckHDB -->|Yes| HanaEng[Run /CTDI/CL_SCAN_ENGINE_HANA]
-    CheckHDB -->|No| UnivEng[Run /CTDI/CL_SCAN_ENGINE_UNIV]
+    CheckHDB -->|Yes| HanaEng["Run /CTDI/CL_SCAN_ENGINE_HANA"]
+    CheckHDB -->|No| UnivEng["Run /CTDI/CL_SCAN_ENGINE_UNIV"]
 
     HanaEng --> HanaSuccess{Pushdown Succeeded?}
     HanaSuccess -->|No - Fallback| UnivEng
-    HanaSuccess -->|Yes| ScanDone[Collect Findings]
+    HanaSuccess -->|Yes| ScanDone["Collect Findings"]
     UnivEng --> ScanDone
 
-    ScanDone --> SaveCkpt[Save Final Checkpoint in INDX]
-    SaveCkpt --> SaveLog[Commit Application Log to SLG1]
+    ScanDone --> SaveCkpt["Save Final Checkpoint in INDX"]
+    SaveCkpt --> SaveLog["Commit Application Log to SLG1"]
 
     SaveLog --> AnyHits{Violations Found?}
-    AnyHits -->|No| ShowClean[Display 'Table Clean' Message]
+    AnyHits -->|No| ShowClean["Display Table Clean Message"]
     AnyHits -->|Yes| CheckMode{Selected Action Mode}
 
-    CheckMode -->|p_rscan: Scan Only| ShowHits[Display Findings in SALV Grid]
-    CheckMode -->|p_rsim: Simulation| SimRem[Calculate Clean Diff Matrix]
-    SimRem --> ShowDiffGrid[Display Proposed Diffs in Dedicated SALV]
+    CheckMode -->|p_rscan: Scan Only| ShowHits["Display Findings in SALV Grid"]
+    CheckMode -->|p_rsim: Simulation| SimRem["Calculate Clean Diff Matrix"]
+    SimRem --> ShowDiffGrid["Display Proposed Diffs in Dedicated SALV"]
 
     CheckMode -->|p_rfix: Live Fix| DialogCheck{Running in Dialog?}
-    DialogCheck -->|Yes| Confirm[Display POPUP_TO_CONFIRM]
+    DialogCheck -->|Yes| Confirm["Display POPUP_TO_CONFIRM"]
     Confirm --> UserApproved{User Answer = Yes?}
-    UserApproved -->|No| Cancel[Abort Remediation]
+    UserApproved -->|No| Cancel["Abort Remediation"]
     UserApproved -->|Yes| LockTable
-    DialogCheck -->|No - Batch| LockTable[Call ENQUEUE_E_TABLE]
+    DialogCheck -->|No - Batch| LockTable["Call ENQUEUE_E_TABLE"]
 
-    LockTable --> ApplyUpdate[Execute Sanitized Table UPDATE]
-    ApplyUpdate --> UnlockTable[Call DEQUEUE_E_TABLE]
-    UnlockTable --> LogAudit[Audit Log Remediation Count]
+    LockTable --> ApplyUpdate["Execute Sanitized Table UPDATE"]
+    ApplyUpdate --> UnlockTable["Call DEQUEUE_E_TABLE"]
+    UnlockTable --> LogAudit["Audit Log Remediation Count"]
     LogAudit --> Finish([Done])
     ShowClean --> Finish
     ShowHits --> Finish
@@ -304,8 +304,8 @@ graph TB
     Report --> Dynpro
 
     Factory --> IEngine
-    IEngine <|.. UnivEngine
-    IEngine <|.. HanaEngine
+    UnivEngine -.->|Realizes| IEngine
+    HanaEngine -.->|Realizes| IEngine
     HanaEngine -.->|Fallback| UnivEngine
 
     UnivEngine --> ParallelDriver
@@ -315,7 +315,7 @@ graph TB
     ParallelDriver --> BinaryBuffer
     ParallelDriver --> SPBT
     ParallelDriver --> ScannerRule
-    ScannerRule ..|> IRule
+    ScannerRule -.->|Implements| IRule
 
     Reader --> Metadata
     Reader --> Partitioner
