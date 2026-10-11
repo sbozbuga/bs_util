@@ -633,21 +633,20 @@ START-OF-SELECTION.
       " a worker process to scan; hits are merged. lt_keys are the non-client
       " key fields - reused here as the resume key order.
       TRY.
-          DATA(ls_pres) = /ctdi/cl_scan_parallel=>run_parallel_scan(
-            iv_table         = p_tab
-            it_scanflds      = lt_scanflds
-            it_keys          = lt_keys
-            it_keyflds       = lt_keys
-            is_scope         = ls_scope
-            it_where         = lt_where
-            iv_pkg_size      = COND #( WHEN p_auto = abap_true THEN 0 ELSE p_pkg )
-            iv_pkgs_per_wave = 5
-            iv_percentage    = p_pct
-            iv_hmax          = p_hmax
-            iv_group         = p_grp
-            " reuse the row count the selection screen already computed, so
-            " the scan does NOT run a second (expensive) COUNT(*) at start.
-            iv_total_est     = gv_cnt_rows ).
+          DATA(lo_engine) = /ctdi/cl_scan_engine_factory=>get_engine( ).
+          DATA(lo_rule)   = NEW /ctdi/cl_cntrl_scanner( is_scope = ls_scope ).
+          DATA(ls_pres)   = lo_engine->execute(
+            is_params = VALUE #(
+              table        = p_tab
+              fields       = lt_scanflds
+              keys         = lt_keys
+              where        = lt_where
+              pkg_size     = COND #( WHEN p_auto = abap_true THEN 0 ELSE p_pkg )
+              percentage   = p_pct
+              server_group = p_grp
+              hmax         = p_hmax
+              total_est    = gv_cnt_rows )
+            ii_rule   = lo_rule ).
         CATCH cx_root INTO DATA(lx_par).
           gv_error = abap_true.
           WRITE: / 'Error (parallel scan)', p_tab, ':', lx_par->get_text( ).
