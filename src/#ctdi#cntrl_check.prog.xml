@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0">
  <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
   <asx:values>
@@ -74,7 +74,7 @@
      <ID>S</ID>
      <KEY>P_AUTO</KEY>
      <ENTRY>Auto package sizing (parallel)</ENTRY>
-     <LENGTH>35</LENGTH>
+     <LENGTH>38</LENGTH>
     </item>
     <item>
      <ID>S</ID>
@@ -152,7 +152,7 @@
      <ID>S</ID>
      <KEY>P_PCT</KEY>
      <ENTRY>% of dialog WPs (parallel)</ENTRY>
-     <LENGTH>32</LENGTH>
+     <LENGTH>34</LENGTH>
     </item>
     <item>
      <ID>S</ID>
@@ -165,7 +165,7 @@
      <KEY>P_RCHR</KEY>
      <ENTRY>Replacement character</ENTRY>
      <LENGTH>29</LENGTH>
-     </item>
+    </item>
     <item>
      <ID>S</ID>
      <KEY>P_RES</KEY>
@@ -301,31 +301,31 @@
        <ID>S</ID>
        <KEY>P_ALV</KEY>
        <ENTRY>Ausgabe als ALV-Grid</ENTRY>
-       <LENGTH>27</LENGTH>
+       <LENGTH>28</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_AUTO</KEY>
        <ENTRY>Automatische Paketgröße (parallel)</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>42</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_C0</KEY>
        <ENTRY>Weitere C0-Steuerzeichen (0x00-0x1F)</ENTRY>
-       <LENGTH>37</LENGTH>
+       <LENGTH>44</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_C1</KEY>
        <ENTRY>C1-Steuerzeichen (0x80-0x9F)</ENTRY>
-       <LENGTH>29</LENGTH>
+       <LENGTH>36</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_CMN</KEY>
        <ENTRY>Zeilenumbrüche &amp; Tab (LF/CR/TAB)</ENTRY>
-       <LENGTH>37</LENGTH>
+       <LENGTH>40</LENGTH>
       </item>
       <item>
        <ID>S</ID>
@@ -343,43 +343,43 @@
        <ID>S</ID>
        <KEY>P_HMAX</KEY>
        <ENTRY>Stopp nach N Treffern (0 = alle)</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>40</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_LOG</KEY>
        <ENTRY>Lauf in SLG1 / Jobprotokoll loggen</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>42</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_MAX</KEY>
        <ENTRY>Max. Zeilen (Blockgröße)</ENTRY>
-       <LENGTH>29</LENGTH>
+       <LENGTH>32</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_MFST</KEY>
        <ENTRY>Erster Block</ENTRY>
-       <LENGTH>19</LENGTH>
+       <LENGTH>20</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_MFUL</KEY>
        <ENTRY>Gesamte Tabelle (Streaming)</ENTRY>
-       <LENGTH>27</LENGTH>
+       <LENGTH>35</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_MLST</KEY>
        <ENTRY>Letzter Block (nach Primärschlüssel)</ENTRY>
-       <LENGTH>36</LENGTH>
+       <LENGTH>44</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_PAR</KEY>
        <ENTRY>Parallele Prüfung (Streaming)</ENTRY>
-       <LENGTH>29</LENGTH>
+       <LENGTH>37</LENGTH>
       </item>
       <item>
        <ID>S</ID>
@@ -391,7 +391,7 @@
        <ID>S</ID>
        <KEY>P_PKG</KEY>
        <ENTRY>Paketgröße (Streaming)</ENTRY>
-       <LENGTH>25</LENGTH>
+       <LENGTH>30</LENGTH>
       </item>
       <item>
        <ID>S</ID>
@@ -403,7 +403,7 @@
        <ID>S</ID>
        <KEY>P_RES</KEY>
        <ENTRY>Ab letztem Checkpoint fortsetzen</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>40</LENGTH>
       </item>
       <item>
        <ID>S</ID>
@@ -415,37 +415,37 @@
        <ID>S</ID>
        <KEY>P_RFIX</KEY>
        <ENTRY>Bereinigung durchführen (Update)</ENTRY>
-       <LENGTH>39</LENGTH>
+       <LENGTH>40</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_RSCAN</KEY>
        <ENTRY>Nur prüfen (Scan)</ENTRY>
-       <LENGTH>17</LENGTH>
+       <LENGTH>25</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_RSIM</KEY>
        <ENTRY>Bereinigung simulieren (Diffs)</ENTRY>
-       <LENGTH>36</LENGTH>
+       <LENGTH>38</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_SCHK</KEY>
        <ENTRY>Felder mit Prüftabelle überspringen</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>43</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_SKIP</KEY>
        <ENTRY>Zu überspringende Zeilen (Offset)</ENTRY>
-       <LENGTH>33</LENGTH>
+       <LENGTH>41</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>P_SPC</KEY>
        <ENTRY>Sonderzeichen (NBSP / Zero-Width)</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>41</LENGTH>
       </item>
       <item>
        <ID>S</ID>
@@ -458,16 +458,16 @@
        <ID>S</ID>
        <KEY>SO_CP</KEY>
        <ENTRY>Codepunkte z.B. 0A, 7F, 80-9F</ENTRY>
-       <LENGTH>35</LENGTH>
+       <LENGTH>37</LENGTH>
       </item>
       <item>
        <ID>S</ID>
        <KEY>SO_FLD</KEY>
        <ENTRY>Zu prüfende Felder</ENTRY>
-       <LENGTH>22</LENGTH>
+       <LENGTH>26</LENGTH>
       </item>
       <item>
-       <ID>SO_OPT</ID>
+       <ID>S</ID>
        <ENTRY>WHERE-Bedingungen</ENTRY>
        <LENGTH>33</LENGTH>
       </item>

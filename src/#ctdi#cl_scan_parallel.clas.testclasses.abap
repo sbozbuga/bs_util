@@ -242,7 +242,7 @@ CLASS ltcl_parallel IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD calc_width_non_zero.
-    DATA(lv_w) = /ctdi/cl_scan_parallel=>calc_width( 50 ).
+    DATA(lv_w) = /ctdi/cl_scan_parallel=>calc_width( iv_percentage = 50 ).
     cl_abap_unit_assert=>assert_true(
       act = xsdbool( lv_w >= 1 ) msg = 'calc_width must always return at least 1' ).
   ENDMETHOD.

@@ -51,42 +51,16 @@ ENDCLASS.
 
 
 
-CLASS /ctdi/cl_scan_logger IMPLEMENTATION.
+CLASS /CTDI/CL_SCAN_LOGGER IMPLEMENTATION.
 
-  METHOD constructor.
-    DATA ls_log TYPE bal_s_log.
-    ls_log-object    = iv_object.
-    ls_log-subobject = iv_subobject.
-    ls_log-extnumber = COND #( WHEN iv_extnumber IS NOT INITIAL
-                               THEN iv_extnumber
-                               ELSE |Scan_{ sy-datum }_{ sy-uzeit }| ).
-    ls_log-aldate    = sy-datum.
-    ls_log-altime    = sy-uzeit.
-    ls_log-aluser    = sy-uname.
-    ls_log-alprog    = sy-repid.
 
-    CALL FUNCTION 'BAL_LOG_CREATE'
-      EXPORTING
-        i_s_log      = ls_log
-      IMPORTING
-        e_log_handle = mv_log_handle
-      EXCEPTIONS
-        OTHERS       = 1.
+  METHOD add_error.
+    add_msg( iv_msgty = 'E' iv_text = iv_text ).
   ENDMETHOD.
 
 
   METHOD add_info.
     add_msg( iv_msgty = 'I' iv_text = iv_text ).
-  ENDMETHOD.
-
-
-  METHOD add_warning.
-    add_msg( iv_msgty = 'W' iv_text = iv_text ).
-  ENDMETHOD.
-
-
-  METHOD add_error.
-    add_msg( iv_msgty = 'E' iv_text = iv_text ).
   ENDMETHOD.
 
 
@@ -118,6 +92,38 @@ CLASS /ctdi/cl_scan_logger IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD add_warning.
+    add_msg( iv_msgty = 'W' iv_text = iv_text ).
+  ENDMETHOD.
+
+
+  METHOD constructor.
+    DATA ls_log TYPE bal_s_log.
+    ls_log-object    = iv_object.
+    ls_log-subobject = iv_subobject.
+    ls_log-extnumber = COND #( WHEN iv_extnumber IS NOT INITIAL
+                               THEN iv_extnumber
+                               ELSE |Scan_{ sy-datum }_{ sy-uzeit }| ).
+    ls_log-aldate    = sy-datum.
+    ls_log-altime    = sy-uzeit.
+    ls_log-aluser    = sy-uname.
+    ls_log-alprog    = sy-repid.
+
+    CALL FUNCTION 'BAL_LOG_CREATE'  "#EC "#EC CI_SUBRC
+      EXPORTING
+        i_s_log      = ls_log
+      IMPORTING
+        e_log_handle = mv_log_handle
+      EXCEPTIONS
+        OTHERS       = 1.
+  ENDMETHOD.
+
+
+  METHOD get_messages.
+    rt_messages = mt_messages.
+  ENDMETHOD.
+
+
   METHOD save.
     IF mv_log_handle IS INITIAL.
       rv_saved = abap_false.
@@ -125,7 +131,7 @@ CLASS /ctdi/cl_scan_logger IMPLEMENTATION.
     ENDIF.
 
     DATA lt_handles TYPE bal_t_logh.
-    APPEND mv_log_handle TO lt_handles.
+    INSERT mv_log_handle INTO TABLE lt_handles.
 
     CALL FUNCTION 'BAL_DB_SAVE'
       EXPORTING
@@ -135,10 +141,4 @@ CLASS /ctdi/cl_scan_logger IMPLEMENTATION.
 
     rv_saved = xsdbool( sy-subrc = 0 ).
   ENDMETHOD.
-
-
-  METHOD get_messages.
-    rt_messages = mt_messages.
-  ENDMETHOD.
-
 ENDCLASS.

@@ -49,8 +49,7 @@ CLASS /ctdi/cl_key_partitioner DEFINITION
         VALUE(rt_slices) TYPE tt_slice
       RAISING
         cx_sy_dynamic_osql_error
-        cx_sy_create_data_error
-        cx_sy_authorization_error .
+        cx_sy_create_data_error .
 
   PROTECTED SECTION.
   PRIVATE SECTION.
@@ -58,13 +57,7 @@ ENDCLASS.
 
 
 
-CLASS /ctdi/cl_key_partitioner IMPLEMENTATION.
-
-  METHOD quote_literal.
-    DATA(lv_v) = iv_value.
-    REPLACE ALL OCCURRENCES OF |'| IN lv_v WITH |''|.
-    rv_lit = |'{ lv_v }'|.
-  ENDMETHOD.
+CLASS /CTDI/CL_KEY_PARTITIONER IMPLEMENTATION.
 
 
   METHOD build_resume_where.
@@ -204,7 +197,7 @@ CLASS /ctdi/cl_key_partitioner IMPLEMENTATION.
       FIELD-SYMBOLS <last> TYPE any.
       READ TABLE <lt_pkg> ASSIGNING <last> INDEX lv_rows.
       DATA lv_end_str TYPE string.
-      LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf3>).
+      LOOP AT lt_keyflds ASSIGNING FIELD-SYMBOL(<kf3>).  "#EC CI_NESTED
         ASSIGN COMPONENT <kf3> OF STRUCTURE <last> TO FIELD-SYMBOL(<kv>).
         lv_end_str = <kv>.
         APPEND VALUE #( field = <kf3> value = lv_end_str ) TO lt_end.
@@ -221,4 +214,10 @@ CLASS /ctdi/cl_key_partitioner IMPLEMENTATION.
     ENDSELECT.
   ENDMETHOD.
 
+
+  METHOD quote_literal.
+    DATA(lv_v) = iv_value.
+    REPLACE ALL OCCURRENCES OF |'| IN lv_v WITH |''|.
+    rv_lit = |'{ lv_v }'|.
+  ENDMETHOD.
 ENDCLASS.

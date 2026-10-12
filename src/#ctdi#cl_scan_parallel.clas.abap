@@ -57,7 +57,7 @@ public section.
       !IV_PERCENTAGE    type I default 50
       !IV_HMAX          type I default 0
       !IV_TOTAL_EST     type I default 0   " known row estimate (0 = count here)
-      !IV_GROUP         type rfcservergroup optional
+      !IV_GROUP         type rzlli_apcl optional
     returning
       value(RS_RESULT)  type TS_RESULT .
 
@@ -85,7 +85,7 @@ public section.
     "! because fewer were free than asked for.
     CLASS-METHODS calc_width
       IMPORTING iv_percentage   TYPE i DEFAULT 50
-                iv_group        TYPE rfcservergroup OPTIONAL
+                iv_group        TYPE rzlli_apcl OPTIONAL
       RETURNING VALUE(rv_width) TYPE i.
 
     " Serialize a packet to the XSTRING that RUN transports (driver side).
@@ -112,6 +112,124 @@ ENDCLASS.
 
 
 CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
+
+
+  METHOD calc_sizing.
+    CONSTANTS: lc_min    TYPE i VALUE 40000,
+               lc_target TYPE i VALUE 50000,
+               lc_max    TYPE i VALUE 60000.
+
+    DATA(lv_w) = COND i( WHEN iv_width < 1 THEN 1 ELSE iv_width ).
+    ev_perwave = lv_w.
+
+    " Degenerate / unknown total: fall back to the measured sweet spot.
+    IF iv_total <= 0.
+      ev_pkgsize = lc_target.
+      RETURN.
+    ENDIF.
+
+    " NOTE: ABAP '/' ROUNDS (half-up), it does not truncate. For a correct
+    " ceiling we must use DIV (integer truncating division): ceil(a/b) =
+    " (a + b - 1) DIV b.
+    " Ideal number of ~target-sized packs (at least 1).
+    DATA(lv_ideal) = ( iv_total + lc_target - 1 ) DIV lc_target. " ceil
+    IF lv_ideal < 1.
+      lv_ideal = 1.
+    ENDIF.
+
+    " Round the pack count UP to a whole number of full waves, so no wave
+    " strands work processes. waves = ceil(ideal / W); packs = waves * W.
+    DATA(lv_waves) = ( lv_ideal + lv_w - 1 ) DIV lv_w.
+    IF lv_waves < 1.
+      lv_waves = 1.
+    ENDIF.
+    DATA(lv_packs) = lv_waves * lv_w.
+
+    " Rebalance pack size to fill those packs evenly.
+    ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.        " ceil
+
+    " Keep the pack size inside the [min,max] band. If it is too large,
+    " add whole waves (more, smaller packs) until it fits or we stop
+    " helping; if too small, drop whole waves (fewer, bigger packs) but
+    " never below one wave.
+    WHILE ev_pkgsize > lc_max.
+      lv_waves  = lv_waves + 1.
+      lv_packs  = lv_waves * lv_w.
+      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
+    ENDWHILE.
+
+    WHILE ev_pkgsize < lc_min AND lv_waves > 1.
+      lv_waves  = lv_waves - 1.
+      lv_packs  = lv_waves * lv_w.
+      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
+    ENDWHILE.
+
+    " Final safety clamp (small-N case can still land below min with one
+    " wave - that is an accepted partial wave; just cap at the band edges).
+    IF ev_pkgsize > lc_max.
+      ev_pkgsize = lc_max.
+    ENDIF.
+    IF ev_pkgsize < 1.
+      ev_pkgsize = 1.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD calc_width.
+    " Determine available work processes using SPBT_INITIALIZE (for an RFC
+    " server group) or TH_COUNT_WPS (free dialog WPs on the local server).
+    " NOTE: SPBT_GET_PP_INFO and TH_WP_INFO do NOT exist on this system and
+    " previously caused CALL_FUNCTION_NOT_FOUND dumps.
+    DATA lv_free TYPE i.
+    DATA lv_max  TYPE i.
+    IF iv_group IS NOT INITIAL.
+      " SPBT_INITIALIZE validates the server group and returns the free/max
+      " parallel work processes for it. (The old SPBT_GET_PP_INFO does not
+      " exist on this system - it caused a CALL_FUNCTION_NOT_FOUND dump.)
+      " PBT_ENV_ALREADY_INITIALIZED is benign: on repeated calls (e.g. the
+      " selection-screen live preview) the environment is already set up for
+      " this group, so we treat subrc 2 as success as well.
+      CALL FUNCTION 'SPBT_INITIALIZE'
+        EXPORTING
+          group_name                     = iv_group
+        IMPORTING
+          max_pbt_wps                    = lv_max
+          free_pbt_wps                   = lv_free
+        EXCEPTIONS
+          invalid_group_name             = 1
+          internal_error                 = 2
+          pbt_env_already_initialized    = 3
+          currently_no_resources_avail   = 4
+          no_pbt_resources_found         = 5
+          cant_init_different_pbt_groups = 6
+          OTHERS                         = 7.
+      " Any non-zero subrc (including 'already initialized', where the counts
+      " are not returned) means no usable figure from this FM, so fall back
+      " to the local TH_WP_INFO count below.
+      IF sy-subrc <> 0.
+        lv_free = 0.
+      ENDIF.
+    ENDIF.
+
+    IF lv_free <= 0.
+      " TH_COUNT_WPS returns the free dialog WPs on the current server directly,
+      " so no manual WP-list loop is needed.
+      CALL FUNCTION 'TH_COUNT_WPS'
+        IMPORTING
+          free_dia_wps = lv_free
+        EXCEPTIONS
+          failed       = 1
+          OTHERS       = 2.
+      IF sy-subrc <> 0.
+        lv_free = 0.
+      ENDIF.
+    ENDIF.
+
+    rv_width = iv_percentage * lv_free / 100.
+    IF rv_width < 1.
+      rv_width = 1.
+    ENDIF.
+  ENDMETHOD.
 
 
   METHOD deserialize_hits.
@@ -291,15 +409,13 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
     ENDLOOP.
 
     " Concurrency ceiling = parallel width (lv_perwave from sizing / caller).
-    DATA(lo_par) = COND #(
-      WHEN iv_group IS NOT INITIAL
-      THEN NEW /ctdi/cl_scan_parallel(
-             p_num_tasks  = lv_perwave
-             p_percentage = iv_percentage
-             p_group      = iv_group )
-      ELSE NEW /ctdi/cl_scan_parallel(
-             p_num_tasks  = lv_perwave
-             p_percentage = iv_percentage ) ).
+    " NOTE: standard CL_ABAP_PARALLEL dispatches the parallel RFC without a
+    " GROUP clause (DESTINATION IN GROUP is commented out there), so it always
+    " uses the system default server group. iv_group only feeds calc_width for
+    " sizing the parallel width; it cannot be injected into the task dispatch.
+    DATA(lo_par) = NEW /ctdi/cl_scan_parallel(
+                         p_num_tasks  = lv_perwave
+                         p_percentage = iv_percentage ).
 
     DATA lt_out TYPE cl_abap_parallel=>t_out_tab.
     lo_par->run( EXPORTING p_in_tab  = lt_in
@@ -322,104 +438,6 @@ CLASS /CTDI/CL_SCAN_PARALLEL IMPLEMENTATION.
     IF iv_hmax > 0 AND lines( rs_result-hits ) >= iv_hmax.
       DELETE rs_result-hits FROM iv_hmax + 1.
       rs_result-truncated = abap_true.
-    ENDIF.
-  ENDMETHOD.
-
-
-  METHOD calc_sizing.
-    CONSTANTS: lc_min    TYPE i VALUE 40000,
-               lc_target TYPE i VALUE 50000,
-               lc_max    TYPE i VALUE 60000.
-
-    DATA(lv_w) = COND i( WHEN iv_width < 1 THEN 1 ELSE iv_width ).
-    ev_perwave = lv_w.
-
-    " Degenerate / unknown total: fall back to the measured sweet spot.
-    IF iv_total <= 0.
-      ev_pkgsize = lc_target.
-      RETURN.
-    ENDIF.
-
-    " NOTE: ABAP '/' ROUNDS (half-up), it does not truncate. For a correct
-    " ceiling we must use DIV (integer truncating division): ceil(a/b) =
-    " (a + b - 1) DIV b.
-    " Ideal number of ~target-sized packs (at least 1).
-    DATA(lv_ideal) = ( iv_total + lc_target - 1 ) DIV lc_target. " ceil
-    IF lv_ideal < 1.
-      lv_ideal = 1.
-    ENDIF.
-
-    " Round the pack count UP to a whole number of full waves, so no wave
-    " strands work processes. waves = ceil(ideal / W); packs = waves * W.
-    DATA(lv_waves) = ( lv_ideal + lv_w - 1 ) DIV lv_w.
-    IF lv_waves < 1.
-      lv_waves = 1.
-    ENDIF.
-    DATA(lv_packs) = lv_waves * lv_w.
-
-    " Rebalance pack size to fill those packs evenly.
-    ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.        " ceil
-
-    " Keep the pack size inside the [min,max] band. If it is too large,
-    " add whole waves (more, smaller packs) until it fits or we stop
-    " helping; if too small, drop whole waves (fewer, bigger packs) but
-    " never below one wave.
-    WHILE ev_pkgsize > lc_max.
-      lv_waves  = lv_waves + 1.
-      lv_packs  = lv_waves * lv_w.
-      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
-    ENDWHILE.
-
-    WHILE ev_pkgsize < lc_min AND lv_waves > 1.
-      lv_waves  = lv_waves - 1.
-      lv_packs  = lv_waves * lv_w.
-      ev_pkgsize = ( iv_total + lv_packs - 1 ) DIV lv_packs.
-    ENDWHILE.
-
-    " Final safety clamp (small-N case can still land below min with one
-    " wave - that is an accepted partial wave; just cap at the band edges).
-    IF ev_pkgsize > lc_max.
-      ev_pkgsize = lc_max.
-    ENDIF.
-    IF ev_pkgsize < 1.
-      ev_pkgsize = 1.
-    ENDIF.
-  ENDMETHOD.
-
-
-  METHOD calc_width.
-    " Determine available dialog/background processes cleanly using
-    " SPBT_GET_PP_INFO (for RFC server groups) or TH_WP_INFO (for local server).
-    " Avoids non-standard C-kernel calls (CALL 'ThWpInfo') to comply with SAP Clean Core.
-    DATA lv_free TYPE i.
-    IF iv_group IS NOT INITIAL.
-      CALL FUNCTION 'SPBT_GET_PP_INFO'
-        EXPORTING
-          rfcgr        = iv_group
-        IMPORTING
-          free_pbt_wps = lv_free
-        EXCEPTIONS
-          OTHERS       = 1.
-    ENDIF.
-
-    IF lv_free <= 0.
-      DATA lt_wp TYPE TABLE OF wpinfo.
-      CALL FUNCTION 'TH_WP_INFO'
-        TABLES
-          wplist = lt_wp
-        EXCEPTIONS
-          OTHERS = 1.
-      IF sy-subrc = 0.
-        " Count free DIA work processes (typ = 1 = DIA, wp_istatus = 2 = waiting/free)
-        LOOP AT lt_wp TRANSPORTING NO FIELDS WHERE wp_typ = 1 AND wp_istatus = 2.
-          lv_free = lv_free + 1.
-        ENDLOOP.
-      ENDIF.
-    ENDIF.
-
-    rv_width = iv_percentage * lv_free / 100.
-    IF rv_width < 1.
-      rv_width = 1.
     ENDIF.
   ENDMETHOD.
 

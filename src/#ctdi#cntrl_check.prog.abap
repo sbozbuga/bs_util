@@ -87,89 +87,85 @@ REPORT /ctdi/cntrl_check.
 DATA gv_optline TYPE rfc_db_opt-text. " 72-char WHERE fragment (like RFC_READ_TABLE)
 DATA gv_fldname TYPE fieldname.
 
-SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
-PARAMETERS: p_tab  TYPE tabname OBLIGATORY,
-            p_max  TYPE i DEFAULT 1000,       " block size (rows to read)
-            p_skip TYPE i DEFAULT 0,          " rows to skip (block offset)
-            p_cols TYPE i DEFAULT 1,          " 1-based start column (scan from here on)
-            p_schk AS CHECKBOX DEFAULT 'X',   " skip fields with a check table / foreign key
-            p_alv  AS CHECKBOX DEFAULT 'X',   " output as ALV grid (SALV)
-            p_rfc  TYPE rfcdest.              " RFC dest (empty = local)
-SELECTION-SCREEN END OF BLOCK b1.
+DATA gv_cpref TYPE c LENGTH 4.
 
-" READ MODE: how much of the table to read and in what way (local path).
-"   p_mfst - First block : p_max rows from p_skip (the classic block read)
-"   p_mlst - Last block   : the last p_max rows by primary key
-"   p_mful - Full table   : stream in packages of p_pkg, stop after p_hmax
-"            hits (bounded memory - for big tables). Local SELECT only; not
-"            available on the RFC path.
-SELECTION-SCREEN BEGIN OF BLOCK bm WITH FRAME TITLE gv_tm.
-PARAMETERS: p_mfst RADIOBUTTON GROUP mod DEFAULT 'X'
-                   USER-COMMAND modsel,                " First block
-            p_mlst RADIOBUTTON GROUP mod,              " Last block by key
-            p_mful RADIOBUTTON GROUP mod,              " Full table (stream)
-            p_pkg  TYPE i DEFAULT 50000,               " package size (Full)
-            p_hmax TYPE i DEFAULT 0,               " stop after N hits (0 = all)
-            p_par  AS CHECKBOX USER-COMMAND parsel,    " parallel scan (Full)
-            p_pct  TYPE i DEFAULT 50,                  " % of dialog WPs (parallel)
-            p_grp  TYPE rfcservergroup DEFAULT 'parallel_generators', " RFC server group
-            p_auto AS CHECKBOX DEFAULT 'X'.            " auto pack sizing (parallel)
-  " Live preview of the AUTO sizing (parallel): rows + chosen pack size and
-  " the resulting packs / waves. Recomputed when the table or options change.
-  SELECTION-SCREEN COMMENT /1(79) gv_sinf1.
-  SELECTION-SCREEN COMMENT /1(79) gv_sinf2.
-SELECTION-SCREEN END OF BLOCK bm.
+*&---------------------------------------------------------------------*
+*&  ZONE 1: TARGET DATASET & SELECTION CRITERIA
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b_data WITH FRAME TITLE gv_tdata.
+PARAMETERS: p_tab TYPE tabname OBLIGATORY,
+            p_rfc TYPE rfcdest.              " RFC dest (empty = local)
+SELECTION-SCREEN SKIP 1.
+PARAMETERS: p_schk AS CHECKBOX DEFAULT 'X',   " skip fields with a check table / foreign key
+            p_cols TYPE i DEFAULT 1.          " 1-based start column (scan from here on)
+SELECT-OPTIONS: so_fld FOR gv_fldname,        " Fields to scan (empty = all char fields)
+                so_opt FOR gv_optline LOWER CASE. " WHERE condition fragments
+SELECTION-SCREEN END OF BLOCK b_data.
 
-" OPTIONS: free WHERE condition fragments (like RFC_READ_TABLE OPTIONS).
-SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME. " TITLE TEXT-002.
-SELECT-OPTIONS so_opt FOR gv_optline LOWER CASE.
-SELECTION-SCREEN END OF BLOCK b2.
+*&---------------------------------------------------------------------*
+*&  ZONE 2: EXECUTION ENGINE & CAPACITY (LOCAL PATH)
+*&  Read mode, block/stream sizing, and the parallel capacity controls.
+*&  Fields grey out by MODIF ID group (BLK/FUL/PAR/RFC) in PBO.
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b_eng WITH FRAME TITLE gv_teng.
+PARAMETERS: p_mfst RADIOBUTTON GROUP mod
+                   USER-COMMAND modsel MODIF ID rfc,     " First block
+            p_mlst RADIOBUTTON GROUP mod MODIF ID rfc,   " Last block by key
+            p_mful RADIOBUTTON GROUP mod DEFAULT 'X' MODIF ID rfc. " Full table (stream) - default
+SELECTION-SCREEN SKIP 1.
+PARAMETERS: p_max  TYPE i DEFAULT 1000 MODIF ID blk,     " block size (rows to read)
+            p_skip TYPE i DEFAULT 0    MODIF ID blk.     " rows to skip (block offset)
+PARAMETERS: p_pkg  TYPE i DEFAULT 50000 MODIF ID ful,    " package size (Full)
+            p_hmax TYPE i DEFAULT 0     MODIF ID ful.    " stop after N hits (0 = all)
+SELECTION-SCREEN SKIP 1.
+PARAMETERS: p_par  AS CHECKBOX DEFAULT 'X' USER-COMMAND parsel MODIF ID ful, " parallel scan (Full) - default on
+            p_auto AS CHECKBOX DEFAULT 'X' MODIF ID par,         " auto pack sizing (parallel)
+            p_pct  TYPE i DEFAULT 50       MODIF ID par,         " % of dialog WPs (parallel)
+            p_grp  TYPE rzlli_apcl DEFAULT 'parallel_generators' MODIF ID par. " RFC server group
+" Live preview: rows, chosen pack size, packs/waves, and inline warnings
+" (hit ceiling, WP clamp, dialog time-out, live-update caution).
+SELECTION-SCREEN COMMENT /1(79) gv_sinf1.
+SELECTION-SCREEN COMMENT /1(79) gv_sinf2.
+SELECTION-SCREEN COMMENT /1(79) gv_sinf3.
+SELECTION-SCREEN END OF BLOCK b_eng.
 
-" FIELDS: restrict output/scan to these field names (empty = all char fields).
-SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME. " TITLE TEXT-003.
-SELECT-OPTIONS so_fld FOR gv_fldname.
-SELECTION-SCREEN END OF BLOCK b3.
-
-" SCOPE: which classes of control characters to scan for. Independent bands;
-" a smaller set also speeds up the CA/NA scan on the hot path. Default = the
-" common whitespace controls (LF/CR/TAB) only.
-SELECTION-SCREEN BEGIN OF BLOCK b4 WITH FRAME TITLE gv_t004.
+*&---------------------------------------------------------------------*
+*&  ZONE 3: INSPECTION RULES & DEFECT SCOPE
+*&  Independent control-character bands + explicit code points (hex).
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b_rule WITH FRAME TITLE gv_trule.
 PARAMETERS: p_cmn AS CHECKBOX DEFAULT 'X',  " Line breaks & tab (LF, CR, TAB)
             p_c0  AS CHECKBOX,              " Other C0 controls (0x00-0x1F)
             p_c1  AS CHECKBOX,              " C1 block (0x80-0x9F)
             p_spc AS CHECKBOX.              " NBSP & zero-width / BOM family
-SELECTION-SCREEN END OF BLOCK b4.
+SELECTION-SCREEN SKIP 1.
+SELECT-OPTIONS so_cp FOR gv_cpref.          " Explicit code points (hex, e.g. 7F or 80-9F)
+SELECTION-SCREEN END OF BLOCK b_rule.
 
-" Additional explicit control-code points (hex). The only way to reach DEL
-" (7F) and any arbitrary point/range, e.g. 7F or 80-9F (low-high).
-DATA gv_cpref TYPE c LENGTH 4.
-SELECTION-SCREEN BEGIN OF BLOCK b5 WITH FRAME TITLE gv_t005.
-SELECT-OPTIONS so_cp FOR gv_cpref.
-SELECTION-SCREEN END OF BLOCK b5.
-
-" OBSERVABILITY & CHECKPOINTS: SLG1 Application Log and interrupted scan resume
-SELECTION-SCREEN BEGIN OF BLOCK b_obs WITH FRAME TITLE gv_tobs.
-PARAMETERS: p_log AS CHECKBOX DEFAULT 'X', " Log execution in SLG1 / batch log
-            p_res AS CHECKBOX.             " Resume from last checkpoint if interrupted
-SELECTION-SCREEN END OF BLOCK b_obs.
-
-" REMEDIATION: Clean control characters (simulation vs live table update)
-SELECTION-SCREEN BEGIN OF BLOCK b_rem WITH FRAME TITLE gv_trem.
+*&---------------------------------------------------------------------*
+*&  ZONE 4: ACTION, OUTPUT & GOVERNANCE
+*&  Remediation mode (scan / simulate / apply), output and observability.
+*&---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b_act WITH FRAME TITLE gv_tact.
 PARAMETERS: p_rscan RADIOBUTTON GROUP rmd DEFAULT 'X' USER-COMMAND rmdsel, " Scan only
             p_rsim  RADIOBUTTON GROUP rmd,                                  " Simulate remediation (diffs)
             p_rfix  RADIOBUTTON GROUP rmd.                                  " Apply remediation (live update)
-PARAMETERS: p_rchr  TYPE c LENGTH 1 DEFAULT ' '.                            " Replacement character
-SELECTION-SCREEN END OF BLOCK b_rem.
+PARAMETERS: p_rchr  TYPE c LENGTH 1 DEFAULT ' ' MODIF ID rem.               " Replacement character
+SELECTION-SCREEN SKIP 1.
+PARAMETERS: p_alv AS CHECKBOX DEFAULT 'X',   " output as ALV grid (SALV)
+            p_log AS CHECKBOX DEFAULT 'X',   " Log execution in SLG1 / batch log
+            p_res AS CHECKBOX.               " Resume from last checkpoint if interrupted
+SELECTION-SCREEN END OF BLOCK b_act.
 
 DATA gt_hits      TYPE /ctdi/cl_cntrl_scanner=>tt_hit.
 DATA gv_rows      TYPE i.
-DATA gv_error     TYPE abap_bool.   " a read/scan error was reported (partial result)
+DATA gv_error TYPE abap_bool.   " a read/scan error was reported (partial result)
 DATA gv_truncated TYPE abap_bool.   " full sweep stopped early at the hit ceiling
 
 " Selection-screen AUTO-sizing preview: cached row count (per table).
 " gv_sinf1 / gv_sinf2 are declared implicitly by the SELECTION-SCREEN
 " COMMENT statements, so they must NOT be declared here (redeclaration).
-DATA gv_cnt_tab  TYPE tabname.      " table the cached count belongs to
+DATA gv_cnt_tab TYPE tabname.      " table the cached count belongs to
 DATA gv_cnt_rows TYPE i.            " cached COUNT(*) for gv_cnt_tab
 
 *&---------------------------------------------------------------------*
@@ -249,11 +245,10 @@ CLASS lcl_scan_sink IMPLEMENTATION.
 ENDCLASS.
 
 INITIALIZATION.
-  gv_t004 = 'Control-character classes to scan'(004).
-  gv_t005 = 'Explicit code points (hex, e.g. 7F or 80-9F)'(005).
-  gv_tm   = 'Read mode (local path)'(006).
-  gv_tobs = 'Observability & Checkpointing'(007).
-  gv_trem = 'Remediation Workflow (Governed Table Cleaning)'(008).
+  gv_tdata = 'Target dataset & selection criteria'(010).
+  gv_teng  = 'Execution engine & capacity (local path)'(011).
+  gv_trule = 'Inspection rules & defect scope'(012).
+  gv_tact  = 'Action, output & governance'(013).
 
 *&---------------------------------------------------------------------*
 *&  Grey out the start column when an explicit FIELDS list is entered -
@@ -266,15 +261,13 @@ AT SELECTION-SCREEN OUTPUT.
   " and waves. The COUNT(*) is cached per table (recomputed only when the
   " table name changes) so it does not run on every screen refresh; the
   " sizing arithmetic is cheap and recomputed each PBO.
-  CLEAR: gv_sinf1, gv_sinf2.
+  CLEAR: gv_sinf1, gv_sinf2, gv_sinf3.
   " Skip the preview on the EXECUTE round-trip (sy-ucomm = 'ONLI') - it is
   " purely informational, and recomputing it (incl. the COUNT) right before
   " the run just adds startup latency. Only compute it while the user is
-  " interacting with the screen.
-  IF sy-ucomm <> 'ONLI'
-     AND p_mful = abap_true AND p_par = abap_true AND p_auto = abap_true
-     AND p_rfc IS INITIAL AND p_tab IS NOT INITIAL.
-    " (re)count only when the table changed
+  " interacting with the screen, and only on the local path with a table set.
+  IF sy-ucomm <> 'ONLI' AND p_rfc IS INITIAL AND p_tab IS NOT INITIAL.
+    " (re)count only when the table changed - COUNT(*) is the expensive part.
     IF p_tab <> gv_cnt_tab.
       TRY.
           SELECT COUNT(*) FROM (p_tab) INTO @gv_cnt_rows.
@@ -283,20 +276,48 @@ AT SELECTION-SCREEN OUTPUT.
       ENDTRY.
       gv_cnt_tab = p_tab.
     ENDIF.
-    DATA(lv_w)  = /ctdi/cl_scan_parallel=>calc_width( iv_percentage = p_pct
-                                                      iv_group      = p_grp ).
-    DATA lv_ps TYPE i.
-    DATA lv_pw TYPE i.
-    /ctdi/cl_scan_parallel=>calc_sizing( EXPORTING iv_total   = gv_cnt_rows
-                                                   iv_width   = lv_w
-                                         IMPORTING ev_pkgsize = lv_ps
-                                                   ev_perwave = lv_pw ).
-    DATA(lv_packs) = COND i( WHEN lv_ps > 0 THEN ( gv_cnt_rows + lv_ps - 1 ) DIV lv_ps ELSE 0 ).
-    DATA(lv_waves) = COND i( WHEN lv_pw > 0 THEN ( lv_packs + lv_pw - 1 ) DIV lv_pw ELSE 0 ).
-    gv_sinf1 = |Rows ~{ gv_cnt_rows }  |
-            && |Pack size { lv_ps }  (auto, band 40k-60k)|.
-    gv_sinf2 = |{ lv_packs } packs in { lv_waves } waves of { lv_pw } | &&
-               |(width from { p_pct }% of free WPs)|.
+
+    IF p_mful = abap_true AND p_par = abap_true AND p_auto = abap_true.
+      " Full parallel + AUTO: show the derived pack size, packs and waves.
+      DATA(lv_w)  = /ctdi/cl_scan_parallel=>calc_width( iv_percentage = p_pct
+                                                        iv_group      = p_grp ).
+      DATA lv_ps TYPE i.
+      DATA lv_pw TYPE i.
+      /ctdi/cl_scan_parallel=>calc_sizing( EXPORTING iv_total   = gv_cnt_rows
+                                                     iv_width   = lv_w
+                                           IMPORTING ev_pkgsize = lv_ps
+                                                     ev_perwave = lv_pw ).
+      DATA(lv_packs) = COND i( WHEN lv_ps > 0 THEN ( gv_cnt_rows + lv_ps - 1 ) DIV lv_ps ELSE 0 ).
+      DATA(lv_waves) = COND i( WHEN lv_pw > 0 THEN ( lv_packs + lv_pw - 1 ) DIV lv_pw ELSE 0 ).
+      gv_sinf1 = |Rows ~{ gv_cnt_rows }  Pack size { lv_ps }  (auto, band 40k-60k)|.
+      gv_sinf2 = |{ lv_packs } packs in { lv_waves } waves of { lv_pw } | &&
+                 |(width from { p_pct }% of free WPs)|.
+      " Inline warning: requested share exceeds the free WPs actually available,
+      " so the real width was clamped down - tell the user the effective width.
+      IF lv_w > 0 AND lv_pw < ( p_pct * lv_w / 100 ).
+        gv_sinf3 = |Note: parallel width clamped to { lv_pw } by free work processes|.
+      ENDIF.
+    ELSEIF p_mful = abap_true.
+      " Full serial (or AUTO off): a whole-table sweep in fixed packages.
+      DATA(lv_fpacks) = COND i( WHEN p_pkg > 0 THEN ( gv_cnt_rows + p_pkg - 1 ) DIV p_pkg ELSE 0 ).
+      gv_sinf1 = |Rows ~{ gv_cnt_rows }  Full sweep in { lv_fpacks } packages of { p_pkg }|.
+    ELSE.
+      " Block modes (First / Last): we read at most p_max rows.
+      DATA(lv_read) = COND i( WHEN gv_cnt_rows > 0 AND gv_cnt_rows < p_max THEN gv_cnt_rows ELSE p_max ).
+      gv_sinf1 = |Rows ~{ gv_cnt_rows }  Reading up to { lv_read } rows | &&
+                 COND #( WHEN p_mlst = abap_true THEN |(last block by key)| ELSE |(from offset { p_skip })| ).
+    ENDIF.
+
+    " Hit-ceiling hint on a full sweep: 0 = unlimited, so the whole table is scanned.
+    IF p_mful = abap_true AND p_hmax = 0 AND gv_sinf3 IS INITIAL.
+      gv_sinf3 = |No hit ceiling: the full ~{ gv_cnt_rows } rows will be scanned|.
+    ENDIF.
+  ENDIF.
+
+  " Live-update caution always wins the warning line - this path writes to
+  " the table, so make it loud regardless of the sizing hints above.
+  IF p_rfix = abap_true.
+    gv_sinf3 = |CAUTION: Apply mode writes cleaned values back to { p_tab }|.
   ENDIF.
 
   " The read-mode radio group and the control-character SCOPE are LOCAL-path
@@ -309,61 +330,62 @@ AT SELECTION-SCREEN OUTPUT.
     p_mfst = abap_true.
   ENDIF.
 
+  " Field enable/disable. Driven by MODIF ID groups set in the declaration:
+  "   RFC - read-mode radios (local-path only)
+  "   BLK - block-read size/offset (First/Last modes)
+  "   FUL - full-stream fields incl. the parallel toggle
+  "   PAR - parallel-only fields (auto / share / server group)
+  "   REM - remediation replacement character
   LOOP AT SCREEN.
     " start column is inactive once an explicit FIELDS list is given
     IF screen-name = 'P_COLS' AND so_fld[] IS NOT INITIAL.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " On the RFC path, mode selection and scope do not apply - disable them
-    " so the user is not misled into thinking they take effect remotely.
+    " On the RFC path, read-mode / stream / parallel and the scope + remediation
+    " controls do not apply - the remote read is always a first-block scan with
+    " the full legacy control set. Disable everything local-only so the screen
+    " stays honest about what will actually run remotely.
     IF p_rfc IS NOT INITIAL
-       AND ( screen-name = 'P_MFST' OR screen-name = 'P_MLST'
-          OR screen-name = 'P_MFUL' OR screen-name = 'P_PKG'
-          OR screen-name = 'P_HMAX' OR screen-name = 'P_PAR'
-          OR screen-name = 'P_PCT'  OR screen-name = 'P_GRP'
-          OR screen-name = 'P_AUTO'
-          OR screen-name = 'P_CMN'  OR screen-name = 'P_C0'
-          OR screen-name = 'P_C1'   OR screen-name = 'P_SPC'
-          OR screen-name = 'P_RES'  OR screen-name = 'P_RSCAN'
-          OR screen-name = 'P_RSIM' OR screen-name = 'P_RFIX'
-          OR screen-name = 'P_RCHR' ).
+       AND (    screen-group1 = 'RFC' OR screen-group1 = 'BLK'
+             OR screen-group1 = 'FUL' OR screen-group1 = 'PAR'
+             OR screen-group1 = 'REM'
+             OR screen-name = 'P_CMN'  OR screen-name = 'P_C0'
+             OR screen-name = 'P_C1'   OR screen-name = 'P_SPC'
+             OR screen-name = 'P_RES'  OR screen-name = 'P_RSCAN'
+             OR screen-name = 'P_RSIM' OR screen-name = 'P_RFIX' ).
       screen-input = 0.
       MODIFY SCREEN.
       CONTINUE.
     ENDIF.
-    " Package size / hit ceiling / parallel options apply only to Full
-    IF ( screen-name = 'P_PKG'  OR screen-name = 'P_HMAX'
-      OR screen-name = 'P_PAR'  OR screen-name = 'P_PCT'
-      OR screen-name = 'P_GRP'  OR screen-name = 'P_AUTO' )
-       AND p_mful = abap_false.
+    " Full-stream fields (incl. the parallel toggle) apply only to Full mode.
+    IF screen-group1 = 'FUL' AND p_mful = abap_false.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Process-%, server group, and auto-sizing only matter when parallel is on
-    IF ( screen-name = 'P_PCT' OR screen-name = 'P_GRP' OR screen-name = 'P_AUTO' )
-       AND p_par = abap_false.
+    " Parallel-only fields need both Full mode AND the parallel toggle on.
+    IF screen-group1 = 'PAR' AND ( p_mful = abap_false OR p_par = abap_false ).
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Explicit package size is inactive when auto sizing is on (parallel)
-    IF screen-name = 'P_PKG' AND p_par = abap_true AND p_auto = abap_true.
+    " Explicit package size is inactive when auto sizing is on (parallel).
+    IF screen-name = 'P_PKG' AND p_mful = abap_true
+       AND p_par = abap_true AND p_auto = abap_true.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Row count / skip apply only to the block modes (First / Last)
-    IF ( screen-name = 'P_MAX' OR screen-name = 'P_SKIP' )
-       AND p_mful = abap_true.
+    " Block read size / offset apply only to the block modes (First / Last).
+    IF screen-group1 = 'BLK' AND p_mful = abap_true.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Block offset (skip) is meaningless for the Last-block mode
+    " Block offset (skip) is meaningless for the Last-block mode.
     IF screen-name = 'P_SKIP' AND p_mlst = abap_true.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
-    " Replacement character only applies when remediating
-    IF screen-name = 'P_RCHR' AND p_rscan = abap_true.
+    " Replacement character only applies when remediating (sim or apply).
+    IF screen-group1 = 'REM' AND p_rscan = abap_true.
       screen-input = 0.
       MODIFY SCREEN.
     ENDIF.
@@ -1019,16 +1041,18 @@ ENDFORM.
 *&      Value help for RFC Server Groups (table RZ12).
 *&---------------------------------------------------------------------*
 FORM f4_server_group.
-  TYPES: BEGIN OF ts_rz12,
-           classname TYPE rz12-classname,
-           appl      TYPE rz12-appl,
-         END OF ts_rz12.
-  DATA lt_groups TYPE TABLE OF ts_rz12.
+  TYPES: BEGIN OF ts_grp,
+           classname TYPE rzllitab-classname,
+         END OF ts_grp.
+  DATA lt_groups TYPE TABLE OF ts_grp.
 
-  SELECT DISTINCT classname, appl
-    FROM rz12
+  " RFC server groups live in table RZLLITAB (RZ12 is the maintenance
+  " transaction, not a table). One row per group x application server, so
+  " DISTINCT on CLASSNAME collapses it to one entry per group for the F4.
+  SELECT DISTINCT classname
+    FROM rzllitab
     INTO TABLE @lt_groups
-    ORDER BY classname.
+    ORDER BY classname.                                  "#EC CI_BYPASS
 
   IF sy-subrc <> 0 OR lt_groups IS INITIAL.
     RETURN.

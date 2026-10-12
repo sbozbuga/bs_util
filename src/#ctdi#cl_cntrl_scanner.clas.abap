@@ -247,8 +247,8 @@ ENDCLASS.
 CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
 
 
-  METHOD constructor.
-    ms_scope = is_scope.
+  METHOD /ctdi/if_inspection_rule~get_db_filter.
+    CLEAR rv_filter.
   ENDMETHOD.
 
 
@@ -271,11 +271,6 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
                                 it_fields = it_fields
                                 it_keys   = it_keys
                                 is_scope  = ms_scope ).
-  ENDMETHOD.
-
-
-  METHOD /ctdi/if_inspection_rule~get_db_filter.
-    CLEAR rv_filter.
   ENDMETHOD.
 
 
@@ -317,55 +312,6 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
-
-  METHOD class_constructor.
-    DATA lv_i TYPE i.
-
-    " C0 block: 0x0000 to 0x001F (0 to 31). Split into the "common" band
-    " (TAB 09, LF 0A, CR 0D) and the "c0_other" band (everything else).
-    WHILE lv_i < 32.
-      DATA(lv_cp_c0) = CONV tv_cp( lv_i ).
-      DATA(lv_ch_c0) = cl_abap_conv_in_ce=>uccp( uccp = lv_cp_c0 ).
-      gv_control_chars = gv_control_chars && lv_ch_c0.
-      IF lv_i = 9 OR lv_i = 10 OR lv_i = 13.
-        gv_common = gv_common && lv_ch_c0.
-      ELSE.
-        gv_c0_other = gv_c0_other && lv_ch_c0.
-      ENDIF.
-      lv_i = lv_i + 1.
-    ENDWHILE.
-
-    " DEL: 0x007F (127) - part of the full set, but reachable per-scope only
-    " via the explicit extra_cp input (no dedicated band).
-    DATA(lv_cp_del) = CONV tv_cp( 127 ).
-    gv_control_chars = gv_control_chars && cl_abap_conv_in_ce=>uccp( uccp = lv_cp_del ).
-
-    " C1 block: 0x0080 to 0x009F (128 to 159)
-    lv_i = 128.
-    WHILE lv_i <= 159.
-      DATA(lv_cp_c1) = CONV tv_cp( lv_i ).
-      DATA(lv_ch_c1) = cl_abap_conv_in_ce=>uccp( uccp = lv_cp_c1 ).
-      gv_control_chars = gv_control_chars && lv_ch_c1.
-      gv_c1 = gv_c1 && lv_ch_c1.
-      lv_i = lv_i + 1.
-    ENDWHILE.
-
-    " "special" band: NBSP + the zero-width / BOM family. Defined ONCE in
-    " gt_special (the single source of truth); gv_special, cp_descr and
-    " sanitize all derive from it. NBSP collapses to a space ('S'), the
-    " zero-width / BOM points are deleted ('D'). These are NOT in
-    " gv_control_chars - they are the opt-in special tier only.
-    gt_special = VALUE #(
-      ( cp = 160   action = 'S' descr = 'NBSP (no-break space)' )
-      ( cp = 8203  action = 'D' descr = 'ZWSP (zero width space)' )
-      ( cp = 8204  action = 'D' descr = 'ZWNJ (zero width non-joiner)' )
-      ( cp = 8205  action = 'D' descr = 'ZWJ (zero width joiner)' )
-      ( cp = 65279 action = 'D' descr = 'BOM / ZWNBSP (0xFEFF)' ) ).
-    LOOP AT gt_special ASSIGNING FIELD-SYMBOL(<sp>).
-      DATA(lv_cp_sp) = CONV tv_cp( <sp>-cp ).
-      gv_special = gv_special && cl_abap_conv_in_ce=>uccp( uccp = lv_cp_sp ).
-    ENDLOOP.
-  ENDMETHOD.
 
   METHOD build_scan_set.
     " Initial scope (no bands, no extra points) => full set, so existing
@@ -427,28 +373,59 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD hex_to_int.
-    " Parse up to 4 hex digits into an integer. Returns -1 on any invalid
-    " character so the caller can skip the token defensively.
-    DATA(lv_in) = to_upper( condense( iv_hex ) ).
-    rv_int = 0.
-    IF lv_in IS INITIAL OR strlen( lv_in ) > 4.
-      rv_int = -1.
-      RETURN.
-    ENDIF.
-    DATA lv_k TYPE i.
-    DATA(lv_len) = strlen( lv_in ).
-    WHILE lv_k < lv_len.
-      DATA(lv_d) = lv_in+lv_k(1).
-      DATA lv_v TYPE i.
-      FIND lv_d IN '0123456789ABCDEF' MATCH OFFSET lv_v.
-      IF sy-subrc <> 0.
-        rv_int = -1.
-        RETURN.
+
+  METHOD class_constructor.
+    DATA lv_i TYPE i.
+
+    " C0 block: 0x0000 to 0x001F (0 to 31). Split into the "common" band
+    " (TAB 09, LF 0A, CR 0D) and the "c0_other" band (everything else).
+    WHILE lv_i < 32.
+      DATA(lv_cp_c0) = CONV tv_cp( lv_i ).
+      DATA(lv_ch_c0) = cl_abap_conv_in_ce=>uccp( uccp = lv_cp_c0 ).
+      gv_control_chars = gv_control_chars && lv_ch_c0.
+      IF lv_i = 9 OR lv_i = 10 OR lv_i = 13.
+        gv_common = gv_common && lv_ch_c0.
+      ELSE.
+        gv_c0_other = gv_c0_other && lv_ch_c0.
       ENDIF.
-      rv_int = rv_int * 16 + lv_v.
-      lv_k = lv_k + 1.
+      lv_i = lv_i + 1.
     ENDWHILE.
+
+    " DEL: 0x007F (127) - part of the full set, but reachable per-scope only
+    " via the explicit extra_cp input (no dedicated band).
+    DATA(lv_cp_del) = CONV tv_cp( 127 ).
+    gv_control_chars = gv_control_chars && cl_abap_conv_in_ce=>uccp( uccp = lv_cp_del ).
+
+    " C1 block: 0x0080 to 0x009F (128 to 159)
+    lv_i = 128.
+    WHILE lv_i <= 159.
+      DATA(lv_cp_c1) = CONV tv_cp( lv_i ).
+      DATA(lv_ch_c1) = cl_abap_conv_in_ce=>uccp( uccp = lv_cp_c1 ).
+      gv_control_chars = gv_control_chars && lv_ch_c1.
+      gv_c1 = gv_c1 && lv_ch_c1.
+      lv_i = lv_i + 1.
+    ENDWHILE.
+
+    " "special" band: NBSP + the zero-width / BOM family. Defined ONCE in
+    " gt_special (the single source of truth); gv_special, cp_descr and
+    " sanitize all derive from it. NBSP collapses to a space ('S'), the
+    " zero-width / BOM points are deleted ('D'). These are NOT in
+    " gv_control_chars - they are the opt-in special tier only.
+    gt_special = VALUE #(
+      ( cp = 160   action = 'S' descr = 'NBSP (no-break space)' )
+      ( cp = 8203  action = 'D' descr = 'ZWSP (zero width space)' )
+      ( cp = 8204  action = 'D' descr = 'ZWNJ (zero width non-joiner)' )
+      ( cp = 8205  action = 'D' descr = 'ZWJ (zero width joiner)' )
+      ( cp = 65279 action = 'D' descr = 'BOM / ZWNBSP (0xFEFF)' ) ).
+    LOOP AT gt_special ASSIGNING FIELD-SYMBOL(<sp>).
+      DATA(lv_cp_sp) = CONV tv_cp( <sp>-cp ).
+      gv_special = gv_special && cl_abap_conv_in_ce=>uccp( uccp = lv_cp_sp ).
+    ENDLOOP.
+  ENDMETHOD.
+
+
+  METHOD constructor.
+    ms_scope = is_scope.
   ENDMETHOD.
 
 
@@ -535,6 +512,31 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD hex_to_int.
+    " Parse up to 4 hex digits into an integer. Returns -1 on any invalid
+    " character so the caller can skip the token defensively.
+    DATA(lv_in) = to_upper( condense( iv_hex ) ).
+    rv_int = 0.
+    IF lv_in IS INITIAL OR strlen( lv_in ) > 4.
+      rv_int = -1.
+      RETURN.
+    ENDIF.
+    DATA lv_k TYPE i.
+    DATA(lv_len) = strlen( lv_in ).
+    WHILE lv_k < lv_len.
+      DATA(lv_d) = lv_in+lv_k(1).
+      DATA lv_v TYPE i.
+      FIND lv_d IN '0123456789ABCDEF' MATCH OFFSET lv_v.
+      IF sy-subrc <> 0.
+        rv_int = -1.
+        RETURN.
+      ENDIF.
+      rv_int = rv_int * 16 + lv_v.
+      lv_k = lv_k + 1.
+    ENDWHILE.
+  ENDMETHOD.
+
+
   METHOD is_control_cp.
     " Control char =
     "   C0 block : code point < 0x20 (below blank)
@@ -613,6 +615,40 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
   ENDMETHOD.
 
 
+  METHOD scan_row_by_index.
+    DATA lt_row_hits TYPE tt_hit.
+    FIELD-SYMBOLS <fld> TYPE any.
+
+    LOOP AT it_comp_map ASSIGNING FIELD-SYMBOL(<comp>).
+      ASSIGN COMPONENT <comp>-index OF STRUCTURE is_data TO <fld>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      IF <fld> NA iv_chars.
+        CONTINUE.
+      ENDIF.
+      scan_value( EXPORTING iv_row     = iv_row
+                            iv_keyinfo = ``
+                            iv_field   = <comp>-name
+                            iv_value   = CONV string( <fld> )
+                            iv_chars   = iv_chars
+                  CHANGING  ct_hits    = lt_row_hits ).
+    ENDLOOP.
+
+    IF lt_row_hits IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA(lv_keyinfo) = build_keyinfo( is_data       = is_data
+                                      it_keys       = it_keys
+                                      iv_check_clnt = abap_false ).
+    LOOP AT lt_row_hits ASSIGNING FIELD-SYMBOL(<h>).
+      <h>-keyinfo = lv_keyinfo.
+    ENDLOOP.
+    APPEND LINES OF lt_row_hits TO ct_hits.
+  ENDMETHOD.
+
+
   METHOD scan_row_resolved.
     " Scan all fields into a row-local buffer WITHOUT keyinfo first; only if
     " the row actually has hits do we build keyinfo (once) and stamp it.
@@ -684,7 +720,7 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
       IF lr_typedescr->kind = cl_abap_typedescr=>kind_struct.
         DATA(lr_struct) = CAST cl_abap_structdescr( lr_typedescr ).
         DATA(lt_components) = lr_struct->get_components( ).
-        LOOP AT it_fields ASSIGNING FIELD-SYMBOL(<fld_name>).
+        LOOP AT it_fields ASSIGNING FIELD-SYMBOL(<fld_name>). "#EC CI_NESTED
           DATA(lv_fname) = to_upper( <fld_name> ).
           READ TABLE lt_components TRANSPORTING NO FIELDS WITH KEY name = lv_fname.
           IF sy-subrc = 0.
@@ -718,40 +754,6 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
                            CHANGING  ct_hits       = rt_hits ).
       ENDLOOP.
     ENDIF.
-  ENDMETHOD.
-
-
-  METHOD scan_row_by_index.
-    DATA lt_row_hits TYPE tt_hit.
-    FIELD-SYMBOLS <fld> TYPE any.
-
-    LOOP AT it_comp_map ASSIGNING FIELD-SYMBOL(<comp>).
-      ASSIGN COMPONENT <comp>-index OF STRUCTURE is_data TO <fld>.
-      IF sy-subrc <> 0.
-        CONTINUE.
-      ENDIF.
-      IF <fld> NA iv_chars.
-        CONTINUE.
-      ENDIF.
-      scan_value( EXPORTING iv_row     = iv_row
-                            iv_keyinfo = ``
-                            iv_field   = <comp>-name
-                            iv_value   = CONV string( <fld> )
-                            iv_chars   = iv_chars
-                  CHANGING  ct_hits    = lt_row_hits ).
-    ENDLOOP.
-
-    IF lt_row_hits IS INITIAL.
-      RETURN.
-    ENDIF.
-
-    DATA(lv_keyinfo) = build_keyinfo( is_data       = is_data
-                                      it_keys       = it_keys
-                                      iv_check_clnt = abap_false ).
-    LOOP AT lt_row_hits ASSIGNING FIELD-SYMBOL(<h>).
-      <h>-keyinfo = lv_keyinfo.
-    ENDLOOP.
-    APPEND LINES OF lt_row_hits TO ct_hits.
   ENDMETHOD.
 
 

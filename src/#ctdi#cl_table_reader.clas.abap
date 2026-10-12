@@ -244,17 +244,45 @@ ENDCLASS.
 CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
 
 
-  METHOD check_authority.
-    /ctdi/cl_table_metadata=>check_authority( iv_table ).
-  ENDMETHOD.
-
-
   METHOD build_projection.
     /ctdi/cl_table_metadata=>build_projection(
       EXPORTING iv_table  = iv_table
                 it_fields = it_fields
       IMPORTING ev_cols   = ev_cols
                 er_struct = er_struct ).
+  ENDMETHOD.
+
+
+  METHOD build_resume_where.
+    rv_where = /ctdi/cl_key_partitioner=>build_resume_where( it_after ).
+  ENDMETHOD.
+
+
+  METHOD build_until_where.
+    rv_where = /ctdi/cl_key_partitioner=>build_until_where( it_until ).
+  ENDMETHOD.
+
+
+  METHOD check_authority.
+    /ctdi/cl_table_metadata=>check_authority( iv_table ).
+  ENDMETHOD.
+
+
+  METHOD get_key_fields.
+    rt_keyflds = /ctdi/cl_table_metadata=>get_key_fields( iv_table ).
+  ENDMETHOD.
+
+
+  METHOD probe_slices.
+    rt_slices = /ctdi/cl_key_partitioner=>probe_slices(
+      iv_table      = iv_table
+      it_where      = it_where
+      iv_slice_size = iv_slice_size ).
+  ENDMETHOD.
+
+
+  METHOD quote_literal.
+    rv_lit = /ctdi/cl_key_partitioner=>quote_literal( iv_value ).
   ENDMETHOD.
 
 
@@ -321,41 +349,6 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD read_in_packages.
-    check_authority( iv_table ).
-
-    build_projection( EXPORTING iv_table  = iv_table
-                                it_fields = it_fields
-                      IMPORTING ev_cols   = DATA(lv_cols)
-                                er_struct = er_struct ).
-
-    " One reusable package table matching the (projected) structure.
-    DATA(lr_tab) = cl_abap_tabledescr=>create( er_struct ).
-    DATA lr_pkg TYPE REF TO data.
-    CREATE DATA lr_pkg TYPE HANDLE lr_tab.
-    FIELD-SYMBOLS <lt_pkg> TYPE STANDARD TABLE.
-    ASSIGN lr_pkg->* TO <lt_pkg>.
-
-    " Open-cursor package sweep in PRIMARY KEY order: memory stays bounded
-    " to one package; deep offsets are NOT re-read (unlike the block read).
-    DATA lv_base TYPE i.
-    SELECT (lv_cols) FROM (iv_table)
-      INTO CORRESPONDING FIELDS OF TABLE @<lt_pkg> PACKAGE SIZE @iv_pkg_size
-      WHERE (it_where)
-      ORDER BY PRIMARY KEY.
-
-      DATA(lv_continue) = ii_sink->handle_package( ir_data     = lr_pkg
-                                                   iv_base_row = lv_base ).
-      lv_base = lv_base + lines( <lt_pkg> ).
-
-      IF lv_continue = abap_false.
-        " Sink asked to stop (e.g. hit ceiling reached) - close the cursor.
-        EXIT.
-      ENDIF.
-    ENDSELECT.
-  ENDMETHOD.
-
-
   METHOD read_chunk.
     check_authority( iv_table ).
 
@@ -398,13 +391,13 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
 
     IF lv_order IS INITIAL.
       " No key fields given - fall back to primary-key order.
-      SELECT (lv_cols) FROM (iv_table)
+      SELECT (lv_cols) FROM (iv_table) "#EC CI_SEL_NESTED
         INTO CORRESPONDING FIELDS OF TABLE @<lt_data>
         UP TO @iv_max ROWS
         WHERE (lt_where)
         ORDER BY PRIMARY KEY.
     ELSE.
-      SELECT (lv_cols) FROM (iv_table)
+      SELECT (lv_cols) FROM (iv_table) "#EC CI_SEL_NESTED
         INTO CORRESPONDING FIELDS OF TABLE @<lt_data>
         UP TO @iv_max ROWS
         WHERE (lt_where)
@@ -430,16 +423,38 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
   ENDMETHOD.
 
 
-  METHOD get_key_fields.
-    rt_keyflds = /ctdi/cl_table_metadata=>get_key_fields( iv_table ).
-  ENDMETHOD.
+  METHOD read_in_packages.
+    check_authority( iv_table ).
 
+    build_projection( EXPORTING iv_table  = iv_table
+                                it_fields = it_fields
+                      IMPORTING ev_cols   = DATA(lv_cols)
+                                er_struct = er_struct ).
 
-  METHOD probe_slices.
-    rt_slices = /ctdi/cl_key_partitioner=>probe_slices(
-      iv_table      = iv_table
-      it_where      = it_where
-      iv_slice_size = iv_slice_size ).
+    " One reusable package table matching the (projected) structure.
+    DATA(lr_tab) = cl_abap_tabledescr=>create( er_struct ).
+    DATA lr_pkg TYPE REF TO data.
+    CREATE DATA lr_pkg TYPE HANDLE lr_tab.
+    FIELD-SYMBOLS <lt_pkg> TYPE STANDARD TABLE.
+    ASSIGN lr_pkg->* TO <lt_pkg>.
+
+    " Open-cursor package sweep in PRIMARY KEY order: memory stays bounded
+    " to one package; deep offsets are NOT re-read (unlike the block read).
+    DATA lv_base TYPE i.
+    SELECT (lv_cols) FROM (iv_table)
+      INTO CORRESPONDING FIELDS OF TABLE @<lt_pkg> PACKAGE SIZE @iv_pkg_size
+      WHERE (it_where)
+      ORDER BY PRIMARY KEY.
+
+      DATA(lv_continue) = ii_sink->handle_package( ir_data     = lr_pkg
+                                                   iv_base_row = lv_base ).
+      lv_base = lv_base + lines( <lt_pkg> ).
+
+      IF lv_continue = abap_false.
+        " Sink asked to stop (e.g. hit ceiling reached) - close the cursor.
+        EXIT.
+      ENDIF.
+    ENDSELECT.
   ENDMETHOD.
 
 
@@ -488,7 +503,7 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
       DATA(lv_line) = CONV string( <row>-wa ).
       DATA lt_pairs TYPE /ctdi/cl_cntrl_scanner=>tt_pair.
       CLEAR lt_pairs.
-      LOOP AT lt_fields ASSIGNING FIELD-SYMBOL(<fld>).
+      LOOP AT lt_fields ASSIGNING FIELD-SYMBOL(<fld>). "#EC CI_NESTED
         DATA(lv_off) = <fld>-offset.
         DATA(lv_len) = <fld>-length.
         IF lv_off + lv_len <= strlen( lv_line ).
@@ -499,8 +514,8 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
       " key info for this row: "NAME=value" of the key fields among pairs
       DATA lv_keyinfo TYPE string.
       CLEAR lv_keyinfo.
-      LOOP AT it_keys ASSIGNING FIELD-SYMBOL(<key>).
-        READ TABLE lt_pairs ASSIGNING FIELD-SYMBOL(<kp>) WITH KEY field = <key>.
+      LOOP AT it_keys ASSIGNING FIELD-SYMBOL(<key>). "#EC CI_NESTED
+        READ TABLE lt_pairs ASSIGNING FIELD-SYMBOL(<kp>) WITH KEY field = <key>. "#EC CI_STDSEQ
         IF sy-subrc = 0.
           DATA(lv_kv) = condense( <kp>-value ).
           lv_keyinfo = COND #( WHEN lv_keyinfo IS INITIAL
@@ -520,21 +535,6 @@ CLASS /CTDI/CL_TABLE_READER IMPLEMENTATION.
     rv_width = /ctdi/cl_table_metadata=>remote_width(
       ir_struct = ir_struct
       it_fields = it_fields ).
-  ENDMETHOD.
-
-
-  METHOD build_resume_where.
-    rv_where = /ctdi/cl_key_partitioner=>build_resume_where( it_after ).
-  ENDMETHOD.
-
-
-  METHOD build_until_where.
-    rv_where = /ctdi/cl_key_partitioner=>build_until_where( it_until ).
-  ENDMETHOD.
-
-
-  METHOD quote_literal.
-    rv_lit = /ctdi/cl_key_partitioner=>quote_literal( iv_value ).
   ENDMETHOD.
 
 

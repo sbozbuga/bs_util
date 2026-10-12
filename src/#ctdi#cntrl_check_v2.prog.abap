@@ -90,7 +90,7 @@ SELECTION-SCREEN SKIP 1.
 PARAMETERS: p_par  AS CHECKBOX USER-COMMAND parsel,    " parallel scan (Full)
             p_auto AS CHECKBOX DEFAULT 'X',            " auto pack sizing (parallel)
             p_pct  TYPE i DEFAULT 50,                  " % of dialog WPs (parallel)
-            p_grp  TYPE rfcservergroup DEFAULT 'parallel_generators'. " RFC server group
+            p_grp  TYPE rzlli_apcl DEFAULT 'parallel_generators'. " RFC server group
   " Live preview of the AUTO sizing (parallel)
   SELECTION-SCREEN COMMENT /1(79) gv_sinf1.
   SELECTION-SCREEN COMMENT /1(79) gv_sinf2.
@@ -877,9 +877,9 @@ CLASS lcl_report_handler IMPLEMENTATION.
                         ( code = 'FEFF' name = 'BOM / ZWNBSP (0xFEFF)' ) ).
     DATA lt_cpfld TYPE TABLE OF dfies.
     DATA(lo_cpstr) = CAST cl_abap_structdescr(
-                     cl_abap_typedescr=\u003edescribe_by_data( lt_cpf4[ 1 ] ) ).
-    DATA(lv_off) TYPE i.
-    LOOP AT lo_cpstr->get_components( ) ASSIGNING FIELD-SYMBOL(<c>). 
+                     cl_abap_typedescr=>describe_by_data( p_data = lt_cpf4[ 1 ] ) ).
+    DATA lv_off TYPE i.
+    LOOP AT lo_cpstr->get_components( ) ASSIGNING FIELD-SYMBOL(<c>).
       DATA(lo_el) = CAST cl_abap_elemdescr( <c>-type ).
       DATA(lv_len) = lo_el->length.
       APPEND VALUE dfies(
@@ -932,12 +932,13 @@ CLASS lcl_report_handler IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD f4_server_group.
-    TYPES: BEGIN OF ts_rz12,
-             classname TYPE rz12-classname,
-             appl      TYPE rz12-appl,
-           END OF ts_rz12.
-    DATA lt_groups TYPE TABLE OF ts_rz12.
-    SELECT DISTINCT classname, appl FROM rz12 INTO TABLE @lt_groups ORDER BY classname.
+    " RFC server groups live in table RZLLITAB (RZ12 is the maintenance
+    " transaction, not a table). DISTINCT on CLASSNAME gives one entry per group.
+    TYPES: BEGIN OF ts_grp,
+             classname TYPE rzllitab-classname,
+           END OF ts_grp.
+    DATA lt_groups TYPE TABLE OF ts_grp.
+    SELECT DISTINCT classname FROM rzllitab INTO TABLE @lt_groups ORDER BY classname. "#EC "#EC CI_BYPASS
     IF sy-subrc <> 0 OR lt_groups IS INITIAL.
       RETURN.
     ENDIF.
@@ -999,7 +1000,7 @@ CLASS lcl_report_handler IMPLEMENTATION.
           ELSE `` ).
         lo_disp->set_list_header( |{ p_tab }: { lines( gt_hits ) } hits in { gv_rows } rows{ lv_hdr_note }| ).
         lo_salv->display( ).
-      CATCH cx_salv_msg INTO DATA(lx_salv).
+      CATCH cx_salv_msg cx_salv_not_found INTO DATA(lx_salv).
         MESSAGE lx_salv->get_text( ) TYPE 'S' DISPLAY LIKE 'E'.
     ENDTRY.
   ENDMETHOD.
@@ -1032,7 +1033,7 @@ CLASS lcl_report_handler IMPLEMENTATION.
         lo_salv->get_functions( )->set_all( abap_true ).
         lo_salv->get_display_settings( )->set_list_header( |Remediation Simulation: { lines( lt_disp_diff ) } fields to clean in { p_tab }| ).
         lo_salv->display( ).
-      CATCH cx_salv_msg INTO DATA(lx_salv_diff).
+      CATCH cx_salv_msg cx_salv_not_found INTO DATA(lx_salv_diff).
         MESSAGE lx_salv_diff->get_text( ) TYPE 'S' DISPLAY LIKE 'E'.
     ENDTRY.
   ENDMETHOD.
@@ -1087,6 +1088,3 @@ CLASS lcl_scan_sink IMPLEMENTATION.
     rv_trunc = mv_trunc.
   ENDMETHOD.
 ENDCLASS.
-
-
-

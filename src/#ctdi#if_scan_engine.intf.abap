@@ -9,7 +9,7 @@ INTERFACE /ctdi/if_scan_engine
       where        TYPE /ctdi/cl_table_reader=>tt_where,
       pkg_size     TYPE i,
       percentage   TYPE i,
-      server_group TYPE rfcservergroup,
+      server_group TYPE rzlli_apcl,
       hmax         TYPE i,
       total_est    TYPE i,
     END OF ts_scan_params .
