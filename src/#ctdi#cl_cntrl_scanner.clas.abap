@@ -138,6 +138,7 @@ CLASS /ctdi/cl_cntrl_scanner DEFINITION
     "! @parameter rv_value | the cleaned text value
     CLASS-METHODS sanitize
       IMPORTING iv_value        TYPE clike
+                iv_rep_char     TYPE clike DEFAULT ` `
       RETURNING VALUE(rv_value) TYPE string.
 
   PROTECTED SECTION.
@@ -568,12 +569,12 @@ CLASS /CTDI/CL_CNTRL_SCANNER IMPLEMENTATION.
       DATA(lv_int) = CONV i( lv_cp ).
 
       IF lv_int = lc_cr OR lv_int = lc_lf OR lv_int = lc_tab.
-        "-- whitespace control: collapse to a single regular space
-        rv_value = rv_value && ` `.
+        "-- whitespace control: collapse to replacement character
+        rv_value = rv_value && iv_rep_char.
       ELSEIF line_exists( gt_special[ cp = lv_int ] ).
         "-- special point: apply its single-source action
         IF gt_special[ cp = lv_int ]-action = 'S'.
-          rv_value = rv_value && ` `.
+          rv_value = rv_value && iv_rep_char.
         ENDIF.
         "-- action 'D': delete (append nothing)
       ELSEIF is_control_cp( lv_int ) = abap_true.

@@ -113,11 +113,11 @@ SELECTION-SCREEN END OF BLOCK b_rule.
 *&---------------------------------------------------------------------*
 SELECTION-SCREEN BEGIN OF BLOCK b_act WITH FRAME TITLE gv_tact.
 PARAMETERS: p_rscan RADIOBUTTON GROUP rmd DEFAULT 'X' USER-COMMAND rmdsel, " Scan only
-            p_rsim  RADIOBUTTON GROUP rmd,                                  " Simulate remediation (diffs)
-            p_rfix  RADIOBUTTON GROUP rmd.                                  " Apply remediation (live update)
+            p_rsim  RADIOBUTTON GROUP rmd.                                  " Simulate remediation (diffs)
 PARAMETERS: p_rchr  TYPE c LENGTH 1 DEFAULT ' '.                            " Replacement character
 SELECTION-SCREEN SKIP 1.
-PARAMETERS: p_alv  AS CHECKBOX DEFAULT 'X',   " output as ALV grid (SALV)
+PARAMETERS: p_save AS CHECKBOX DEFAULT 'X',   " Persist findings to /CTDI/SCAN_HITS worklist
+            p_alv  AS CHECKBOX DEFAULT 'X',   " output as ALV grid (SALV)
             p_log  AS CHECKBOX DEFAULT 'X',   " Log execution in SLG1 / batch log
             p_res  AS CHECKBOX.               " Resume from last checkpoint if interrupted
 SELECTION-SCREEN END OF BLOCK b_act.
@@ -469,54 +469,29 @@ END-OF-SELECTION.
     RETURN.
   ENDIF.
 
-  " Governed remediation check
-  IF p_rsim = abap_true OR p_rfix = abap_true.
+  " Persist findings to worklist table /CTDI/SCAN_HITS if requested
+  IF gt_hits IS NOT INITIAL AND p_save = abap_true.
+    DATA(lv_persisted) = /ctdi/cl_scan_remediator=>persist_hits(
+      iv_run_id   = lv_run_id
+      iv_table    = p_tab
+      it_hits     = CORRESPONDING #( gt_hits )
+      iv_rep_char = p_rchr
+      io_logger   = lo_logger ).
+    IF lv_persisted > 0.
+      MESSAGE |{ lv_persisted } findings saved to worklist /CTDI/SCAN_HITS (Run ID: { lv_run_id }). Review & apply in /CTDI/CNTRL_REVIEW|
+        TYPE 'S'.
+    ENDIF.
+  ENDIF.
+
+  " Remediation simulation check
+  IF p_rsim = abap_true.
     DATA lt_viols TYPE /ctdi/if_inspection_rule=>tt_violation.
     lt_viols = CORRESPONDING #( gt_hits ).
-
-    IF p_rsim = abap_true.
-      DATA(ls_sim_res) = /ctdi/cl_scan_remediator=>simulate( lt_viols ).
-      lcl_report_handler=>display_remediation_diffs( it_diff = ls_sim_res-diffs ).
-      RETURN.
-    ELSEIF p_rfix = abap_true.
-      IF sy-batch = abap_false.
-        DATA lv_ans TYPE c LENGTH 1.
-        CALL FUNCTION 'POPUP_TO_CONFIRM'
-          EXPORTING
-            titlebar              = 'Confirm Table Remediation'
-            text_question         = |Do you want to update records with control characters in { p_tab }?|
-            text_button_1         = 'Yes'
-            text_button_2         = 'No'
-            default_button        = '2'
-            display_cancel_button = 'X'
-          IMPORTING
-            answer                = lv_ans
-          EXCEPTIONS
-            OTHERS                = 0.
-        IF lv_ans <> '1'.
-          MESSAGE 'Remediation cancelled by user' TYPE 'S'.
-          RETURN.
-        ENDIF.
-      ENDIF.
-
-      DATA(ls_fix_res) = /ctdi/cl_scan_remediator=>execute(
-        iv_table      = p_tab
-        it_hits       = lt_viols
-        iv_simulation = abap_false
-        io_logger     = lo_logger ).
-      IF ls_fix_res-success = abap_true.
-        IF lo_logger IS BOUND.
-          lo_logger->save( ).
-        ENDIF.
-        MESSAGE |Remediation complete: { ls_fix_res-changed } records updated in { p_tab }| TYPE 'S'.
-      ELSE.
-        IF lo_logger IS BOUND.
-          lo_logger->save( ).
-        ENDIF.
-        MESSAGE |Remediation error on { p_tab }: { ls_fix_res-message }| TYPE 'E'.
-      ENDIF.
-      RETURN.
-    ENDIF.
+    DATA(ls_sim_res) = /ctdi/cl_scan_remediator=>simulate(
+      it_hits     = lt_viols
+      iv_rep_char = p_rchr ).
+    lcl_report_handler=>display_remediation_diffs( it_diff = ls_sim_res-diffs ).
+    RETURN.
   ENDIF.
 
   " Make a partial / truncated result visible rather than silently showing
@@ -632,7 +607,7 @@ CLASS lcl_report_handler IMPLEMENTATION.
             OR screen-name = 'P_CMN'  OR screen-name = 'P_C0'
             OR screen-name = 'P_C1'   OR screen-name = 'P_SPC'
             OR screen-name = 'P_RES'  OR screen-name = 'P_RSCAN'
-            OR screen-name = 'P_RSIM' OR screen-name = 'P_RFIX'
+            OR screen-name = 'P_RSIM' OR screen-name = 'P_SAVE'
             OR screen-name = 'P_RCHR' ).
         screen-input = 0.
         MODIFY SCREEN.
@@ -677,9 +652,6 @@ CLASS lcl_report_handler IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD validate_selection.
-    IF p_rfix = abap_true.
-      MESSAGE 'Caution: Direct remediation mode will update table contents.' TYPE 'W'.
-    ENDIF.
 
     IF p_cmn = abap_false AND p_c0 = abap_false AND p_c1 = abap_false
        AND p_spc = abap_false AND so_cp[] IS INITIAL.

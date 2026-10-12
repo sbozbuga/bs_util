@@ -156,9 +156,9 @@
     </item>
     <item>
      <ID>S</ID>
-     <KEY>P_RFIX</KEY>
-     <ENTRY>Apply remediation (live update)</ENTRY>
-     <LENGTH>39</LENGTH>
+     <KEY>P_SAVE</KEY>
+     <ENTRY>Persist findings to worklist</ENTRY>
+     <LENGTH>35</LENGTH>
     </item>
     <item>
      <ID>S</ID>
