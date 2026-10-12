@@ -17,6 +17,8 @@ Designed to scan, detect, and remediate illegal control characters, non-printabl
 | Document | Description |
 | :--- | :--- |
 | 📄 **[Changelog & Architecture Upgrade](SCANNER_ARCHITECTURE_CHANGES.md)** | Full modernization history, phased architectural enhancements, and Clean Core upgrades. |
+| 🛡️ **[Governed Remediation & Review Console](SCANNER_REVIEW_REMEDIATION.md)** | Persistent worklist table `/CTDI/SCAN_HITS`, read-only scanner decoupling, and `/CTDI/CNTRL_REVIEW`. |
+| 🔍 **[Verified Review Findings & Audit](SCANNER_REVIEW_FINDINGS.md)** | Line-by-line architectural, functional, and performance audit findings and benchmarks. |
 | 📊 **[Architecture & UML Diagrams](SCANNER_DIAGRAMS.md)** | Validated UML Class, Sequence, Activity, Component, and State Machine diagrams. |
 | 🔄 **[Checkpoint & Resume Specification](RESUME_SCENARIO.md)** | Deep-dive into cluster table `INDX` state persistence, key boundaries, and fault resumption. |
 
