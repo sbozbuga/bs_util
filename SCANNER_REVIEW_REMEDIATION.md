@@ -75,7 +75,7 @@ Implemented in [`src/#ctdi#scan_hits.tabl.xml`](src/%23ctdi%23scan_hits.tabl.xml
 | `ITEM_NO` | **X** | `INT4` | 1-based sequential finding index within the run |
 | `TABNAME` | | `TABNAME` (CHAR 30) | Scanned database table name |
 | `KEYINFO` | | `TEXT255` (CHAR 255) | Human-readable key representation (e.g. `VBELN=0000001000 POSNR=000010`) |
-| `KEY_WHERE` | | `TEXT255` (CHAR 255) | Pre-formatted SQL `WHERE` expression for row-level update |
+| `KEY_WHERE` | | `STRING` | Pre-formatted SQL `WHERE` expression for row-level update (zero truncation risk) |
 | `FIELDNAME` | | `FIELDNAME` (CHAR 30) | Column containing the invalid character |
 | `CODEPOINT` | | `CHAR4` (CHAR 4) | Hexadecimal representation of first detected defect (e.g. `000A`) |
 | `HIT_COUNT` | | `INT4` | Total defect occurrences within this field value |
@@ -151,12 +151,29 @@ Implemented in [`src/#ctdi#cl_scan_remediator.clas.abap`](src/%23ctdi%23cl_scan_
       system_failure = 2
       OTHERS         = 3.
   ```
-* **Dynamic Open SQL Execution**:
-  Quotes cleaned values via `/ctdi/cl_key_partitioner=>quote_literal` and updates dynamically:
+* **Client Isolation Guard**:
+  Rejects cross-client executions if `is_hit-mandt` does not match the active session client (`sy-mandt`).
+* **Dynamic Open SQL Execution with Multi-Row Guard (`sy-dbcnt = 1`)**:
+  Quotes cleaned values via `/ctdi/cl_key_partitioner=>quote_literal`, executes dynamic update, and enforces that exactly **one** row was affected:
   ```abap
+  DATA(lv_quoted_val) = /ctdi/cl_key_partitioner=>quote_literal( is_hit-clean_value ).
+  DATA(lv_set_clause) = |{ is_hit-fieldname } = { lv_quoted_val }|.
+
   UPDATE (is_hit-tabname)
     SET (lv_set_clause)
     WHERE (is_hit-key_where).
+
+  IF sy-subrc = 0.
+    IF sy-dbcnt = 1.
+      " Safe: exactly one target record was updated
+      COMMIT WORK.
+      ...
+    ELSE.
+      " CRITICAL: Multi-row mutation detected! Rollback immediately
+      ROLLBACK WORK.
+      rs_result-message = |Safety abort: WHERE matched { sy-dbcnt } rows instead of 1! Rolled back.|.
+    ENDIF.
+  ENDIF.
   ```
 * **Worklist Status Update**:
   * On success: Updates `/CTDI/SCAN_HITS` with `status = 'C'`, stamps `apply_user = sy-uname` and timestamp, then issues `COMMIT WORK`.
@@ -232,3 +249,21 @@ Both detection programs have been modified to enforce read-only execution:
 * Confirm the dialog popup.
 * The system executes row-level enqueues, dynamic SQL updates, audit logging, and marks worklist items as `'C'`.
 * Review the final execution ALV report showing individual item outcomes.
+
+---
+
+## 8. Technical Limits, Edge Cases & Applied Safety Guards
+
+When executing generic dynamic Open SQL (`UPDATE (tabname) SET (set_clause) WHERE (key_where)`), standard application BAPIs and business validations are bypassed. The framework applies concrete safeguards to address these limits:
+
+| Risk / Limit Area | Technical Constraint | Framework Safeguard |
+| :--- | :--- | :--- |
+| **Multi-Row Mutation** | Ambiguous or incomplete WHERE clause mutating multiple rows | **`sy-dbcnt = 1` Guard**: Evaluates `sy-dbcnt` immediately post-update. If `sy-dbcnt > 1`, issues immediate `ROLLBACK WORK` and sets status `'E'`. |
+| **Client Separation** | Reviewer executing across different clients (`MANDT`) | **Client Guard**: Verifies `is_hit-mandt = sy-mandt` before lock acquisition or update; blocks cross-client tampering. |
+| **WHERE Clause Truncation** | Tables with wide composite keys (e.g. 5–8 key fields) | **Dynamic `STRING` Storage**: `KEY_WHERE` in `/CTDI/SCAN_HITS` is defined as `STRING` instead of `CHAR 255`, preventing clause truncation. |
+| **SQL Injection & Escaping** | Values containing quotes (`'`) breaking dynamic syntax | **C-Kernel Quoting**: All literals pass through `/ctdi/cl_key_partitioner=>quote_literal`, converting `'` to `''`. |
+| **Lock Object Disparity** | `ENQUEUE_E_TABLE` does not block business locks (e.g. `EVVBLKE`) | **Row-Level Generic Lock + Maintenance Window Recommendation**: Locks `varkey = keyinfo` to minimize lock footprint; recommends applying during quiet periods. |
+| **SAP Table Buffering** | Tables with shared memory buffering (`BUFALLOW = 'X'`) | Local buffer invalidated automatically; operator documentation notes cross-server buffer synchronization lag (`rdisp/bufreftime`). |
+| **Audit Compliance** | Direct Open SQL does not generate `CDHDR` / `CDPOS` logs | **Persistent Audit Staging**: `/CTDI/SCAN_HITS` serves as the dedicated audit log, preserving original value, cleaned value, user, and timestamps. |
+| **Domain Constraints** | Direct write bypassing `NUMC` leading zeroes or `UPPERCASE` flags | **Pre-Validated Sanitizer**: `sanitize` only cleans non-printable control code points, preserving alphanumeric domain values and case formatting. |
+

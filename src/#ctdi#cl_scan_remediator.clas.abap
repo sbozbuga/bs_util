@@ -181,6 +181,12 @@ CLASS /ctdi/cl_scan_remediator IMPLEMENTATION.
 
 
   METHOD apply_row.
+    IF is_hit-mandt IS NOT INITIAL AND is_hit-mandt <> sy-mandt.
+      rs_result-success = abap_false.
+      rs_result-message = |Cross-client apply prohibited (Hit client: { is_hit-mandt }, Current client: { sy-mandt })|.
+      RETURN.
+    ENDIF.
+
     IF is_hit-status = 'C'.
       rs_result-success = abap_true.
       rs_result-message = 'Item is already cleaned.'.
@@ -216,10 +222,13 @@ CLASS /ctdi/cl_scan_remediator IMPLEMENTATION.
       TRY.
           DATA lv_count TYPE i.
           SELECT COUNT(*) FROM (is_hit-tabname) INTO @lv_count WHERE (is_hit-key_where). "#EC CI_SEL_NESTED
-          IF lv_count > 0.
+          IF lv_count = 1.
             rs_result-success = abap_true.
             rs_result-changed = abap_true.
-            rs_result-message = 'Simulation OK: Target row exists and can be updated.'.
+            rs_result-message = 'Simulation OK: Exactly 1 target row matched and can be updated.'.
+          ELSEIF lv_count > 1.
+            rs_result-success = abap_false.
+            rs_result-message = |Simulation warning: WHERE clause matches { lv_count } rows! Key ambiguity.|.
           ELSE.
             rs_result-success = abap_false.
             rs_result-message = 'Simulation failed: Target row not found on database.'.
@@ -251,17 +260,20 @@ CLASS /ctdi/cl_scan_remediator IMPLEMENTATION.
 
     DATA lv_db_ok TYPE abap_bool VALUE abap_false.
     DATA lv_err_msg TYPE string.
-    DATA lv_val_clean TYPE string.
-    lv_val_clean = is_hit-clean_value.
-    REPLACE ALL OCCURRENCES OF |'| IN lv_val_clean WITH |''|.
-    DATA(lv_set_clause) = |{ is_hit-fieldname } = '{ lv_val_clean }'|.
+    DATA(lv_quoted_val) = /ctdi/cl_key_partitioner=>quote_literal( is_hit-clean_value ).
+    DATA(lv_set_clause) = |{ is_hit-fieldname } = { lv_quoted_val }|.
 
     TRY.
         UPDATE (is_hit-tabname)
           SET (lv_set_clause)
           WHERE (is_hit-key_where).
         IF sy-subrc = 0.
-          lv_db_ok = abap_true.
+          IF sy-dbcnt = 1.
+            lv_db_ok = abap_true.
+          ELSE.
+            ROLLBACK WORK.
+            lv_err_msg = |Safety abort: WHERE clause matched { sy-dbcnt } rows instead of exactly 1! Rolled back.|.
+          ENDIF.
         ELSE.
           lv_err_msg = |UPDATE failed: target record not found (sy-subrc = { sy-subrc })|.
         ENDIF.
